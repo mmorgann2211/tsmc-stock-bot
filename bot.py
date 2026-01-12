@@ -135,7 +135,10 @@ def plot_stock(df, filename="chart.png"):
 # --- 6. 主程式進入點 ---
 def main():
     now = datetime.now(TW_TZ)
-    hour = now.hour
+    # --- 測試模式 (測試完記得改回下一行) ---
+    hour = 8   # <--- 強制假裝現在是早上 8 點 (會觸發 D1 預測)
+    # hour = 14 # <--- 想測收盤就改成 14 (會觸發 D5 結算)
+    # hour = now.hour # <--- 這是原本的，測試正常後再改回來
     today_str = now.strftime('%Y-%m-%d')
     
     print(f"目前時間 (台灣): {now} (Hour: {hour})")
