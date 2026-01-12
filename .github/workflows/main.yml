@@ -1,33 +1,44 @@
-name: Daily Stock Check (Telegram)
+name: Stock Analysis Bot
 
 on:
   schedule:
-    # 每天 UTC 06:00 (台灣時間 14:00) 執行
+    # 台灣 08:30 (UTC 0:30) - 盤前 D1
+    - cron: '30 0 * * *'
+    # 台灣 14:00 (UTC 6:00) - 盤後 D5
     - cron: '0 6 * * *'
-  # 允許手動測試
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+permissions:
+  contents: write  # 重要：允許 Action 寫入檔案
 
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
-        python-version: '3.11'  # 這裡從 3.9 改成 3.11
+        python-version: '3.11' # 解決之前的版本報錯問題
 
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt
+        pip install yfinance mplfinance pandas requests
 
-    - name: Run bot
+    - name: Run Python Script
       env:
-        # 這裡會自動去抓你剛剛設定的 Secrets
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: |
         python bot.py
+
+    - name: Commit and Push Record (Memory)
+      run: |
+        git config --global user.name "StockBot"
+        git config --global user.email "bot@github.com"
+        git add trading_journal.csv
+        # 如果有變動才 Commit，不然會報錯
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update trading record [skip ci]" && git push)
