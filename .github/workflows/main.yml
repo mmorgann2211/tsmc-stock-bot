@@ -35,10 +35,16 @@ jobs:
       run: |
         python bot.py
 
-    - name: Commit and Push Record (Memory)
+    - name: Commit and Push Record
       run: |
         git config --global user.name "StockBot"
         git config --global user.email "bot@github.com"
-        git add trading_journal.csv
-        # 如果有變動才 Commit，不然會報錯
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update trading record [skip ci]" && git push)
+        
+        # 檢查檔案是否存在，存在才執行 git add
+        if [ -f trading_journal.csv ]; then
+          git add trading_journal.csv
+          # 只有在有變動時才 Commit
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update record [skip ci]" && git push)
+        else
+          echo "⚠️ 本次執行未產生 CSV 檔，跳過存檔步驟。"
+        fi
