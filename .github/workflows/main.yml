@@ -1,0 +1,33 @@
+name: Daily Stock Check (Telegram)
+
+on:
+  schedule:
+    # 每天 UTC 06:00 (台灣時間 14:00) 執行
+    - cron: '0 6 * * *'
+  # 允許手動測試
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run bot
+      env:
+        # 這裡會自動去抓你剛剛設定的 Secrets
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        python bot.py
