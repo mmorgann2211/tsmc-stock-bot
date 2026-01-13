@@ -135,27 +135,25 @@ def plot_stock(df, filename="chart.png"):
 # --- 6. 主程式進入點 ---
 def main():
     now = datetime.now(TW_TZ)
-    # --- 測試模式 (測試完記得改回下一行) ---
-    # hour = 8   # <--- 強制假裝現在是早上 8 點 (會觸發 D1 預測)
-    # hour = 14 # <--- 想測收盤就改成 14 (會觸發 D5 結算)
-    hour = now.hour # <--- 這是原本的，測試正常後再改回來
+    hour = now.hour
     today_str = now.strftime('%Y-%m-%d')
     
     print(f"目前時間 (台灣): {now} (Hour: {hour})")
     print(f"執行目標股票: {STOCK_ID}")
 
-    # 抓取近半年資料 (確保有足夠資料算 MA60)
+    # 抓取資料
     df = yf.Ticker(STOCK_ID).history(period="6mo")
     if df.empty:
         print("錯誤：抓不到股價資料")
         return
 
-    # 讀取交易日記
     record_df = load_record()
 
-    # ====== 任務 A: 盤前預測 (台灣早上 08:00 - 09:00) ======
-    if 8 <= hour < 9:
-        print("執行：D1 盤前預測任務")
+    # ====== 修改點：放寬時間判斷 ======
+    # 早上任務：只要是 8 點到 12 點之間被喚醒，都算盤前預測
+    if 8 <= hour < 13:
+        print(f"判定為 D1 盤前預測時段 (Hour: {hour})")
+        # ... (以下 D1 程式碼不用變) ...
         explain_text, pred_dir, last_close = analyze_indicators(df)
         
         msg = f"<b>🌅 {today_str} 盤前 AI 預測</b>\n"
@@ -164,10 +162,7 @@ def main():
         msg += f"\n🤖 <b>綜合判斷：今日看{pred_dir}</b>\n"
         msg += "(收盤後將自動驗證此預測)"
 
-        # 寫入 CSV (如果今天已有紀錄則更新，沒有則新增)
         new_row = {"Date": today_str, "Predicted_Dir": pred_dir, "Open_Price": 0, "Close_Price": 0, "Result": "Pending"}
-        
-        # 檢查是否已存在
         if today_str in record_df['Date'].astype(str).values:
             record_df.loc[record_df['Date'] == today_str, "Predicted_Dir"] = pred_dir
         else:
@@ -176,57 +171,47 @@ def main():
         save_record(record_df)
         send_msg(msg)
 
-    # ====== 任務 B: 盤後檢討 (台灣下午 13:00 - 18:00) ======
-    elif 13 <= hour < 18:
-        print("執行：D5 收盤結算任務")
-        
+    # 下午任務：只要是 13 點到 20 點之間被喚醒，都算盤後結算
+    elif 13 <= hour < 20:
+        print(f"判定為 D5 收盤結算時段 (Hour: {hour})")
+        # ... (以下 D5 程式碼不用變) ...
         current_close = df['Close'].iloc[-1]
         open_price = df['Open'].iloc[-1]
         
-        # 計算實際漲跌
         prev_close = df['Close'].iloc[-2]
         change_val = current_close - prev_close
         real_dir = "漲" if change_val > 0 else "跌"
         
-        # 準備畫圖
         chart_file = "chart.png"
         plot_stock(df, chart_file)
         
-        # 準備訊息
         msg = f"<b>🌛 {today_str} 收盤結算</b>\n"
         msg += f"開盤：{open_price:.1f} | 收盤：{current_close:.1f}\n"
         msg += f"漲跌：{change_val:.1f} ({real_dir})\n"
         msg += "--------------------\n"
 
-        # 對答案：讀取早上的預測
-        res_str = "無紀錄"
         if today_str in record_df['Date'].astype(str).values:
             pred = record_df.loc[record_df['Date'] == today_str, "Predicted_Dir"].values[0]
             msg += f"🎯 早上預測：看<b>{pred}</b>\n"
             
             if pred == real_dir:
-                res_str = "Win"
                 msg += "🏆 <b>恭喜！預測正確！</b>\n"
+                record_df.loc[record_df['Date'] == today_str, "Result"] = "Win"
             elif pred == "Pending":
-                res_str = "Missed"
                 msg += "⚠️ 早上未成功執行預測。\n"
+                record_df.loc[record_df['Date'] == today_str, "Result"] = "Missed"
             else:
-                res_str = "Loss"
-                msg += "💩 <b>預測失敗</b>，市場走勢與指標背離。\n"
+                msg += "💩 <b>預測失敗</b>。\n"
+                record_df.loc[record_df['Date'] == today_str, "Result"] = "Loss"
             
-            # 更新資料庫結果
             record_df.loc[record_df['Date'] == today_str, "Open_Price"] = open_price
             record_df.loc[record_df['Date'] == today_str, "Close_Price"] = current_close
-            record_df.loc[record_df['Date'] == today_str, "Result"] = res_str
             save_record(record_df)
         else:
-            msg += "⚠️ 今日無盤前預測紀錄，無法驗證。\n"
+            msg += "⚠️ 今日無盤前預測紀錄。\n"
 
-        # 發送
         send_photo(chart_file)
         send_msg(msg)
-        
-        # 清除暫存圖片
         if os.path.exists(chart_file):
             os.remove(chart_file)
 
