@@ -1,4 +1,4 @@
 Date,Predicted_Dir,Open_Price,Close_Price,Result
 2026-01-13,跌,1700,1710,Loss
 2026-01-14,跌,1705,1710,Win
-2026-01-15,跌,0,0,Pending
+2026-01-15,跌,1685,1690,Win
