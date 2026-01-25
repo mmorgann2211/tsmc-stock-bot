@@ -96,81 +96,110 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
         is_crypto = "USD" in ticker
         current, atr, ma10, ma20, ma60, period_low, status, rsi = calculate_metrics(df, is_crypto)
         
-        # --- 1. 計算策略價格 ---
-        if "火箭" in status: p1, d1 = ma10, "攻擊型 (10日線)"
-        elif "強多頭" in status: p1, d1 = ma20, "趨勢型 (月線)"
-        else: p1, d1 = current - (atr * 0.5), "短線波動"
+        # --- 1. 計算三種策略價格 (暫不貼標籤) ---
+        strategies = []
 
-        if "火箭" in status: p2, d2 = ma20, "穩健追價 (月線)"
-        elif "強多頭" in status: p2, d2 = ma60, "波段支撐 (季線)"
-        elif "崩盤" in status: p2, d2 = period_low * 0.9, "崩盤觀望價"
+        # 策略A: 均線/短線
+        if "火箭" in status: p1, d1 = ma10, "10日線"
+        elif "強多頭" in status: p1, d1 = ma20, "月線"
+        else: p1, d1 = current - (atr * 0.5), "短線波動"
+        strategies.append({"price": p1, "desc": d1, "type": "A"})
+
+        # 策略B: 季線/中線
+        if "火箭" in status: p2, d2 = ma20, "月線"
+        elif "強多頭" in status: p2, d2 = ma60, "季線"
+        elif "崩盤" in status: p2, d2 = period_low * 0.9, "崩盤觀望"
         else:
             atr_target = current - atr
             p2, d2 = min(atr_target, ma60), "季線/ATR"
+        strategies.append({"price": p2, "desc": d2, "type": "B"})
 
-        if "超級火箭" in status: p3, d3 = ma60, "動態防守 (季線)"
+        # 策略C: 地板/深跌
+        if "超級火箭" in status: p3, d3 = ma60, "季線"
         elif "崩盤" in status:
             discount = 0.85 if is_crypto else 0.92
             p3, d3 = period_low * discount, "崩盤接刀"
-        else: p3, d3 = period_low * 1.01, "區間地板 (寬容)"
+        else: p3, d3 = period_low * 1.01, "區間地板"
+        strategies.append({"price": p3, "desc": d3, "type": "C"})
 
-        # --- 2. 價格校正 (V9.6: 階梯式防呆修正) ---
-        raw_strategies = [(p1, d1, "積極"), (p2, d2, "穩健"), (p3, d3, "保守")]
-        safe_strategies = []
-        
-        for price, desc, label in raw_strategies:
-            # A. 現價防呆：確保掛單 < 現價
-            if price >= current:
-                # 依據策略屬性，給予不同的緩衝距離
-                if label == "積極":
-                    buffer = 0.5 # 積極者只讓 0.5 ATR
-                elif label == "穩健":
-                    buffer = 1.0 # 穩健者讓 1.0 ATR
-                else:
-                    buffer = 1.5 # 保守者讓 1.5 ATR (跌很深才接)
-                
-                price = current - (atr * buffer)
-                
-                # 最後防線：如果 ATR 極小，還是可能 >= 現價，強制打折
-                if price >= current: price = current * 0.99
-                
-                desc += " (跌破修正)"
+        # --- 2. 價格校正與防呆 ---
+        # 這裡還不能排序，先校正數值
+        valid_strategies = []
+        for strat in strategies:
+            price = strat["price"]
+            desc = strat["desc"]
             
-            # B. 台股檔位修正
+            # 台股檔位校正
             if not is_crypto:
                 price = adjust_tw_price(price)
-                if price >= current:
-                    price = adjust_tw_price(current * 0.995)
 
-            safe_strategies.append((price, desc, label))
+            # 現價防呆 (初步)
+            if price >= current:
+                desc += "(修正)"
+            
+            valid_strategies.append({"price": price, "desc": desc})
+
+        # --- 3. 排序與標籤重分配 (V9.7 核心修正) ---
+        # 先由大到小排序
+        valid_strategies.sort(key=lambda x: x["price"], reverse=True)
+
+        # 強制重新分配標籤：最大=積極, 中間=穩健, 最小=保守
+        labels = ["積極", "穩健", "保守"]
         
-        safe_strategies.sort(key=lambda x: x[0], reverse=True)
+        # 為了防止價格重疊，進行階梯式檢查
+        final_strategies = []
+        for i in range(3):
+            item = valid_strategies[i]
+            price = item["price"]
+            desc = item["desc"]
+            label = labels[i]
+            
+            # 防呆修正 (階梯式)
+            if price >= current:
+                if label == "積極": buffer = 0.5
+                elif label == "穩健": buffer = 1.0
+                else: buffer = 1.5
+                
+                price = current - (atr * buffer)
+                if price >= current: price = current * 0.99
+                
+                # 如果是台股，修正後要再校正一次檔位
+                if not is_crypto:
+                    price = adjust_tw_price(price)
+                    if price >= current: price = adjust_tw_price(current * 0.995)
+            
+            final_strategies.append((price, desc, label))
+            
+        # 再次排序確保萬無一失 (因為上面修正可能改變順序，雖機率低)
+        final_strategies.sort(key=lambda x: x[0], reverse=True)
+        # 修正後的再次排序可能會打亂標籤順序，但因為我們已經強制拉開距離，
+        # 所以這裡我們只要確保價格順序對就好，標籤在上面已經賦予了"意義"。
+        # 為了顯示正確，我們重新把標籤貼一次 (確保 Display 是對的)
+        display_strategies = []
+        for i in range(3):
+            display_strategies.append((final_strategies[i][0], final_strategies[i][1], labels[i]))
 
-        # --- 3. AI 推薦機制 ---
+
+        # --- 4. AI 推薦機制 ---
         best_pick_idx = 0 
         ai_reason = ""
         colors = {"積極": "🟢", "穩健": "🟡", "保守": "🔴"}
 
+        # 根據盤勢選擇 "位置" (因為標籤已經跟著位置跑了)
         if "火箭" in status or "強多頭" in status:
-            for i, (p, d, l) in enumerate(safe_strategies):
-                if l == "穩健":
-                    best_pick_idx = i
-                    ai_reason = "🚀 趨勢強勁，AI 推薦「穩健」均線，兼顧上車與安全。"
-                    break
+            # 多頭選中間 (穩健)
+            best_pick_idx = 1
+            ai_reason = "🚀 趨勢強勁，AI 推薦「穩健」均線，兼顧上車與安全。"
         elif "崩盤" in status or "空頭" in status:
-            for i, (p, d, l) in enumerate(safe_strategies):
-                if l == "保守":
-                    best_pick_idx = i
-                    ai_reason = "🐻 趨勢向下，AI 推薦「保守」地板價，拒絕接刀。"
-                    break
+            # 空頭選最低 (保守)
+            best_pick_idx = 2
+            ai_reason = "🐻 趨勢向下，AI 推薦「保守」地板價，拒絕接刀。"
         else:
-            for i, (p, d, l) in enumerate(safe_strategies):
-                if l == "保守":
-                    best_pick_idx = i
-                    ai_reason = "🐢 盤整震盪，AI 推薦「保守」區間下緣，低買高賣。"
-                    break
+            # 盤整選最低 (保守)
+            best_pick_idx = 2
+            ai_reason = "🐢 盤整震盪，AI 推薦「保守」區間下緣，低買高賣。"
 
-        best_price, best_desc, best_label = safe_strategies[best_pick_idx]
+        best_price, best_desc, best_label = display_strategies[best_pick_idx]
         best_color = colors[best_label]
 
         # --- 戰術備註 ---
@@ -182,7 +211,7 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
         else:
             note = "⚡ <b>短線提醒：</b>\n1. 攻擊型操作，風險較高。\n2. 跌破 10日線 請務必停損。"
 
-        # --- 4. 輸出報表 ---
+        # --- 5. 輸出報表 ---
         report = f"<b>{name}</b>\n"
         if is_crypto:
             price_txt = f"{current:.2f} U"
@@ -204,7 +233,7 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
         valid_date = (datetime.now() + timedelta(days=14)).strftime('%m/%d')
         report += f"🛒 <b>完整選項 (至 {valid_date})：</b>\n"
         
-        for price, desc, label in safe_strategies:
+        for price, desc, label in display_strategies:
             if is_crypto:
                 if max_rate:
                     p_str = f"{price:.2f} U ({price*max_rate:.0f} NT)"
@@ -224,18 +253,18 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
 
 def main():
     now = datetime.now(TW_TZ)
-    print(f"V9.6 執行時間: {now}")
+    print(f"V9.7 執行時間: {now}")
     
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
-    msg = f"<b>📊 資產監控 V9.6 (階梯式修正版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
+    msg = f"<b>📊 資產監控 V9.7 (自動排序修正版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
     if max_rate: msg += f"🇹🇼 MAX 匯率：{max_rate:.2f}\n\n"
     
     for name, ticker in TARGETS.items():
         msg += analyze_target(name, ticker, max_rate, c_val)
         
-    msg += "\n💡 <i>Fix: 修正股價跌破均線時，積極/穩健/保守價格會重疊的問題。現在會自動拉開安全階梯。</i>"
+    msg += "\n💡 <i>Fix: 修正 SOL 等高波動資產的「穩健/保守」價格倒置問題。現在系統會強制將最低價歸類為「保守」，確保邏輯一致。</i>"
     
     send_telegram(msg)
 
