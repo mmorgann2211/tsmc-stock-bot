@@ -3,7 +3,7 @@ import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import math  # 新增數學模組
+import math
 from datetime import datetime, timedelta, timezone
 
 # --- 設定區 ---
@@ -46,22 +46,15 @@ def get_max_usdt_rate():
         except:
             return 32.5
 
-# --- V9.5 新增：台股價格校正模組 (無條件進位) ---
 def adjust_tw_price(price):
-    """
-    根據台灣證交所規定調整價格 (升降單位)
-    採取無條件進位 (Ceiling) 策略，確保掛單容易成交且符合格式
-    """
+    """台股價格校正 (無條件進位)"""
     if price < 10: tick = 0.01
     elif price < 50: tick = 0.05
     elif price < 100: tick = 0.1
     elif price < 500: tick = 0.5
     elif price < 1000: tick = 1.0
-    else: tick = 5.0 # 1000元以上 (如台積電)
-    
-    # 核心運算：(價格 / 檔位) 無條件進位 * 檔位
-    adjusted_price = math.ceil(price / tick) * tick
-    return adjusted_price
+    else: tick = 5.0
+    return math.ceil(price / tick) * tick
 
 # --- 核心邏輯 ---
 def calculate_metrics(df, is_crypto=False):
@@ -121,24 +114,32 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
             p3, d3 = period_low * discount, "崩盤接刀"
         else: p3, d3 = period_low * 1.01, "區間地板 (寬容)"
 
-        # --- 2. 價格校正 (Safety Cap + 台股檔位修正) ---
+        # --- 2. 價格校正 (V9.6: 階梯式防呆修正) ---
         raw_strategies = [(p1, d1, "積極"), (p2, d2, "穩健"), (p3, d3, "保守")]
         safe_strategies = []
         
         for price, desc, label in raw_strategies:
             # A. 現價防呆：確保掛單 < 現價
             if price >= current:
-                price = current - (atr * 0.5)
+                # 依據策略屬性，給予不同的緩衝距離
+                if label == "積極":
+                    buffer = 0.5 # 積極者只讓 0.5 ATR
+                elif label == "穩健":
+                    buffer = 1.0 # 穩健者讓 1.0 ATR
+                else:
+                    buffer = 1.5 # 保守者讓 1.5 ATR (跌很深才接)
+                
+                price = current - (atr * buffer)
+                
+                # 最後防線：如果 ATR 極小，還是可能 >= 現價，強制打折
                 if price >= current: price = current * 0.99
+                
                 desc += " (跌破修正)"
             
-            # B. 台股檔位修正 (V9.5 新增)
+            # B. 台股檔位修正
             if not is_crypto:
                 price = adjust_tw_price(price)
-                # 再次檢查：如果無條件進位後變成 >= 現價 (例如現價1522, 算出1521, 進位成1525)
-                # 則強制往下減一檔
                 if price >= current:
-                    # 簡易降檔邏輯：直接打 99.5 折再重新校正，確保比現價低
                     price = adjust_tw_price(current * 0.995)
 
             safe_strategies.append((price, desc, label))
@@ -186,12 +187,10 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
         if is_crypto:
             price_txt = f"{current:.2f} U"
             if max_rate: price_txt += f" (約 {current*max_rate:.0f} NT)"
-            # Crypto 顯示 2位小數
             rec_price_str = f"{best_price:.2f} U"
             if max_rate: rec_price_str += f" ({best_price*max_rate:.0f} NT)"
         else:
             price_txt = f"{current:.0f}"
-            # 台股顯示整數 (或符合檔位)
             rec_price_str = f"{best_price:.2f}"
             if best_price.is_integer(): rec_price_str = f"{int(best_price)}"
             
@@ -212,7 +211,6 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
                 else:
                     p_str = f"{price:.2f} U"
             else:
-                # 台股格式化
                 p_str = f"{price:.2f}"
                 if price.is_integer(): p_str = f"{int(price)}"
                 
@@ -226,18 +224,18 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
 
 def main():
     now = datetime.now(TW_TZ)
-    print(f"V9.5 執行時間: {now}")
+    print(f"V9.6 執行時間: {now}")
     
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
-    msg = f"<b>📊 資產監控 V9.5 (台股價格校正版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
+    msg = f"<b>📊 資產監控 V9.6 (階梯式修正版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
     if max_rate: msg += f"🇹🇼 MAX 匯率：{max_rate:.2f}\n\n"
     
     for name, ticker in TARGETS.items():
         msg += analyze_target(name, ticker, max_rate, c_val)
         
-    msg += "\n💡 <i>Fix: 已新增「台股檔位校正」，自動無條件進位至符合規定的掛單價格 (如 1525, 1530)，解決下單失敗問題。</i>"
+    msg += "\n💡 <i>Fix: 修正股價跌破均線時，積極/穩健/保守價格會重疊的問題。現在會自動拉開安全階梯。</i>"
     
     send_telegram(msg)
 
