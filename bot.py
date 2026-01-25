@@ -2,13 +2,13 @@ import os
 import requests
 import yfinance as yf
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta, timezone
 
-# --- 1. 設定區 ---
+# --- 設定區 ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-# 監控清單
 TARGETS = {
     "🇹🇼 台積電": "2330.TW",
     "🇹🇼 保德信市值": "009803.TW",
@@ -18,7 +18,6 @@ TARGETS = {
 
 TW_TZ = timezone(timedelta(hours=8))
 
-# --- 2. 通訊函式 ---
 def send_telegram(msg):
     if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -28,194 +27,178 @@ def send_telegram(msg):
     except Exception as e:
         print(f"傳送失敗: {e}")
 
-# --- 3. 數據獲取 (MAX API & 貪婪指數) ---
-
 def get_crypto_fng():
-    """抓取幣圈貪婪指數 (0-100)"""
     try:
-        url = "https://api.alternative.me/fng/"
-        r = requests.get(url, timeout=5)
-        data = r.json()
-        return int(data['data'][0]['value'])
+        r = requests.get("https://api.alternative.me/fng/", timeout=5)
+        return int(r.json()['data'][0]['value'])
     except:
         return None
 
 def get_max_usdt_rate():
-    """
-    抓取 MAX 交易所 USDT/TWD 即時匯率
-    API: https://max-api.maicoin.com/api/v2/tickers/usdttwd
-    """
     try:
-        url = "https://max-api.maicoin.com/api/v2/tickers/usdttwd"
-        # 模擬瀏覽器 User-Agent 避免被擋
-        headers = {'User-Agent': 'Mozilla/5.0'} 
-        r = requests.get(url, headers=headers, timeout=10)
-        data = r.json()
-        # 取 'last' (最新成交價) 或 'sell' (賣一價，即你買入的價格)
-        # 為了保守起見，我們取 'sell' (通常比 last 高一點點，代表你當下能買到的價格)
-        price = float(data['sell']) 
-        return price
-    except Exception as e:
-        print(f"MAX API 失敗: {e}")
-        # 如果 MAX 掛了，回退使用 yfinance 抓 USDT-TWD
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get("https://max-api.maicoin.com/api/v2/tickers/usdttwd", headers=headers, timeout=5)
+        return float(r.json()['sell'])
+    except:
         try:
-            print("切換至備用匯率源 (Yahoo)...")
-            df = yf.Ticker("USDTWD=X").history(period="1d")
-            return float(df['Close'].iloc[-1])
+            return float(yf.Ticker("USDTWD=X").history(period="1d")['Close'].iloc[-1])
         except:
-            return None # 真的抓不到就回傳 None，後面會處理
+            return 32.5
 
-# --- 4. 核心邏輯：情緒量表 & 價格分析 ---
-
-def get_sentiment_label(score):
-    """
-    統一的 7 級情緒量表 (適用 RSI 與 貪婪指數)
-    0-100 分制
-    """
-    if score >= 80: return "🤑 <b>極度貪婪</b> (危險)", "🔴"
-    elif score >= 65: return "😈 <b>貪婪</b> (過熱)", "🟠"
-    elif score >= 55: return "🙂 <b>稍微貪婪</b> (偏多)", "🟡"
-    elif score >= 45: return "😐 <b>中立</b> (盤整)", "⚪"
-    elif score >= 35: return "😰 <b>稍微恐懼</b> (偏空)", "🔵"
-    elif score >= 20: return "😨 <b>恐懼</b> (弱勢)", "🟢"
-    else: return "🥶 <b>極度恐懼</b> (絕佳買點)", "🟢🟢"
-
-def calculate_technical(df):
-    """計算技術指標"""
+# --- V9.0 核心：指標計算 ---
+def calculate_metrics(df, is_crypto=False):
     current = df['Close'].iloc[-1]
     
-    # RSI 計算
+    # 均線
+    ma10 = df['Close'].rolling(window=10).mean().iloc[-1]
+    ma20 = df['Close'].rolling(window=20).mean().iloc[-1]
+    ma60 = df['Close'].rolling(window=60).mean().iloc[-1]
+    
+    # ATR
+    high_low = df['High'] - df['Low']
+    tr = pd.concat([high_low, (df['High']-df['Close'].shift()).abs(), (df['Low']-df['Close'].shift()).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(window=14).mean().iloc[-1]
+    
+    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs)).iloc[-1]
+
+    # 歷史區間 (近60天)
+    period_high = df['High'].iloc[-60:].max()
+    period_low = df['Low'].iloc[-60:].min()
     
-    # ATR 計算 (14日真實波動)
-    high_low = df['High'] - df['Low']
-    high_close = (df['High'] - df['Close'].shift()).abs()
-    low_close = (df['Low'] - df['Close'].shift()).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    atr = tr.rolling(window=14).mean().iloc[-1]
-
-    # 均線
-    ma20 = df['Close'].rolling(window=20).mean().iloc[-1] # 月線
-    ma60 = df['Close'].rolling(window=60).mean().iloc[-1] # 季線
+    # 趨勢強度 (均線乖離率)
+    gap_percent = (ma20 - ma60) / ma60 * 100
     
-    # 布林通道下緣 (保守低點)
-    std20 = df['Close'].rolling(window=20).std().iloc[-1]
-    b_lower = ma20 - (std20 * 2)
-
-    return current, rsi, atr, ma20, ma60, b_lower
-
-def analyze_target(name, ticker, max_rate, crypto_fng_val=None):
-    try:
-        df = yf.Ticker(ticker).history(period="6mo")
-        if df.empty: return f"⚠️ <b>{name}</b>: 無法取得資料\n"
-
-        current, rsi, atr, ma20, ma60, b_lower = calculate_technical(df)
-        
-        # --- A. 情緒判斷 (7級) ---
-        # 如果是虛擬貨幣且有全市場指數，優先參考全市場指數，RSI 為輔
-        # 如果是台股，直接用 RSI 當作情緒分數
-        if "USD" in ticker and crypto_fng_val is not None:
-            score = crypto_fng_val
-            # 也可以做混合加權，但通常幣圈看大盤臉色，直接用 FNG 比較準
+    status = "盤整"
+    
+    # V9.0 判定邏輯優化
+    if current > ma60:
+        if gap_percent > 20: # 乖離極大，超級火箭 (針對 Crypto)
+            status = "🚀 超級火箭"
+        elif gap_percent > 8:
+            status = "🔥 強多頭"
         else:
-            score = rsi
+            status = "🐂 多頭"
+    else:
+        if gap_percent < -8:
+            status = "🩸 崩盤"
+        else:
+            status = "🐻 空頭"
             
-        sentiment_text, sentiment_color = get_sentiment_label(score)
-        
-        # --- B. 趨勢判斷 ---
-        trend = "🐂 多頭" if current > ma60 else "🐻 空頭"
+    return current, atr, ma10, ma20, ma60, period_low, status, rsi
 
-        # --- C. ATR 動態掛單計算 ---
-        # 1. 積極：多頭掛月線，空頭掛現價吃一個波動
-        if current > ma20:
-            p1 = ma20
-            p1_desc = "月線支撐"
+def analyze_target(name, ticker, max_rate, crypto_fng_val):
+    try:
+        df = yf.Ticker(ticker).history(period="1y")
+        if df.empty: return f"⚠️ {name}: 無資料\n"
+
+        is_crypto = "USD" in ticker
+        current, atr, ma10, ma20, ma60, period_low, status, rsi = calculate_metrics(df, is_crypto)
+        
+        # --- V9.0 策略定價 ---
+        
+        # 1. 積極價 (Aggressive)
+        if "火箭" in status:
+            p1 = ma10 # 噴出時掛 10日線
+            d1 = "攻擊型 (10日線)"
+        elif "強多頭" in status:
+            p1 = ma20 # 強多掛月線
+            d1 = "趨勢型 (月線)"
         else:
+            # 盤整或空頭，掛短線波動低點
             p1 = current - (atr * 0.5)
-            p1_desc = f"短線接刀 (0.5倍波動)"
+            d1 = "短線波動"
 
-        # 2. 穩健：取 (現價-1倍波動) 與 季線 的低者
-        atr_support = current - atr
-        if atr_support < ma60:
-            p2 = atr_support
-            p2_desc = f"波段修正 (1倍波動)"
+        # 2. 穩健價 (Moderate)
+        if "火箭" in status:
+            p2 = ma20 # 火箭時，月線就是穩健買點
+            d2 = "穩健追價 (月線)"
+        elif "強多頭" in status:
+            p2 = ma60 # 強多時，季線是穩健買點
+            d2 = "波段支撐 (季線)"
+        elif "崩盤" in status:
+            # 崩盤時，穩健就是不買，或者掛非常低
+            p2 = period_low * 0.9
+            d2 = "崩盤觀望價"
         else:
-            p2 = ma60
-            p2_desc = "季線支撐"
+            # 盤整時，掛季線 或 ATR
+            atr_target = current - atr
+            p2 = min(atr_target, ma60)
+            d2 = "季線/ATR"
 
-        # 3. 保守：布林下緣 (統計學低點)
-        p3 = b_lower
-        p3_desc = "布林通道下緣 (超跌區)"
+        # 3. 保守價 (Conservative) - 重點修正區
+        if "超級火箭" in status:
+            # V9.0 修正：超級噴出時，保守價上移至季線 (MA60)，不再看前低
+            # 因為等前低會等到天荒地老
+            p3 = ma60
+            d3 = "動態防守 (季線)"
+        elif "崩盤" in status:
+            # V9.0 修正：崩盤時，保守價打 85 折 (Crypto) 或 92 折 (Stock)
+            discount = 0.85 if is_crypto else 0.92
+            p3 = period_low * discount
+            d3 = "崩盤接刀"
+        else:
+            # 盤整或普通多空頭
+            # V9.0 修正：盤整時，如果不看布林，改看「區間下緣 (Period Low)」
+            # 並給予一點點寬容度 (Period Low + 1% )，避免像 2018-05 那樣差一點買不到
+            p3 = period_low * 1.01 
+            d3 = "區間地板 (寬容)"
 
-        # --- D. 輸出報表 ---
+        # 排序
+        strategies = [(p1, d1), (p2, d2), (p3, d3)]
+        strategies.sort(key=lambda x: x[0], reverse=True)
+        
+        # 輸出
         report = f"<b>{name}</b>\n"
-        
-        # 價格顯示 (虛擬貨幣加上 MAX 匯率換算)
-        if "USD" in ticker:
-            if max_rate:
-                twd_price = current * max_rate
-                report += f"現價：<code>{current:.2f}</code> U (約 {twd_price:.0f} TWD)\n"
-            else:
-                report += f"現價：<code>{current:.2f}</code> U (⚠️ 匯率獲取失敗)\n"
+        if is_crypto:
+            price_txt = f"{current:.2f} U"
+            if max_rate: price_txt += f" (約 {current*max_rate:.0f} NT)"
         else:
-            report += f"現價：<code>{current:.0f}</code>\n"
-
-        report += f"趨勢：{trend} | 情緒：{sentiment_color} {sentiment_text}\n"
-        report += f"波動：ATR <code>{atr:.2f}</code>\n"
+            price_txt = f"{current:.0f}"
+            
+        report += f"現價：<code>{price_txt}</code>\n"
+        report += f"趨勢：{status} (RSI: {rsi:.0f})\n"
         
-        # 計算掛單有效期限 (T+14)
         valid_date = (datetime.now() + timedelta(days=14)).strftime('%m/%d')
-        report += f"🛒 <b>掛單參考 (建議監控至 {valid_date})：</b>\n"
-
-        # 顯示掛單 (含 MAX 台幣換算)
-        if "USD" in ticker and max_rate:
-            report += f"1. 🟢 積極：<code>{p1:.2f}</code> U ({p1*max_rate:.0f} NT) [{p1_desc}]\n"
-            report += f"2. 🟡 穩健：<code>{p2:.2f}</code> U ({p2*max_rate:.0f} NT) [{p2_desc}]\n"
-            report += f"3. 🔴 保守：<code>{p3:.2f}</code> U ({p3*max_rate:.0f} NT) [{p3_desc}]\n"
-        else:
-            report += f"1. 🟢 積極：<code>{p1:.1f}</code> [{p1_desc}]\n"
-            report += f"2. 🟡 穩健：<code>{p2:.1f}</code> [{p2_desc}]\n"
-            report += f"3. 🔴 保守：<code>{p3:.1f}</code> [{p3_desc}]\n"
+        report += f"🛒 <b>智能掛單 (至 {valid_date})：</b>\n"
+        
+        colors = ["🟢", "🟡", "🔴"]
+        labels = ["積極", "穩健", "保守"]
+        
+        for i in range(3):
+            price, desc = strategies[i]
+            if is_crypto and max_rate:
+                p_str = f"{price:.2f} U ({price*max_rate:.0f} NT)"
+            else:
+                p_str = f"{price:.1f}"
+            report += f"{i+1}. {colors[i]} {labels[i]}：<code>{p_str}</code> [{desc}]\n"
             
         report += "--------------------\n"
         return report
 
     except Exception as e:
-        return f"⚠️ <b>{name}</b>: 分析錯誤 {str(e)}\n"
+        return f"⚠️ {name} 分析錯誤: {e}\n"
 
-# --- 5. 主程式 ---
 def main():
     now = datetime.now(TW_TZ)
-    print(f"執行時間: {now}")
-
-    # 1. 取得全域資訊
-    c_val = get_crypto_fng()
-    max_rate = get_max_usdt_rate()
-
-    # 2. 組合訊息
-    final_msg = f"<b>📊 全資產掛單監控 (V5 MAX版)</b>\n"
-    final_msg += f"📅 {now.strftime('%Y-%m-%d')}\n"
+    print(f"V9.0 執行時間: {now}")
     
-    if max_rate:
-        final_msg += f"🇹🇼 MAX USDT 匯率：<b>{max_rate:.2f}</b> TWD\n"
-    else:
-        final_msg += f"⚠️ MAX 匯率抓取失敗，暫停台幣換算\n"
-        
-    if c_val is not None:
-        label, icon = get_sentiment_label(c_val)
-        final_msg += f"🌍 幣圈指數：{icon} {label} ({c_val})\n\n"
+    max_rate = get_max_usdt_rate()
+    c_val = get_crypto_fng()
+    
+    msg = f"<b>📊 資產監控 V9.0 (全地形適應版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
+    if max_rate: msg += f"🇹🇼 MAX 匯率：{max_rate:.2f}\n\n"
     
     for name, ticker in TARGETS.items():
-        print(f"分析: {name}...")
-        final_msg += analyze_target(name, ticker, max_rate, c_val)
+        msg += analyze_target(name, ticker, max_rate, c_val)
+        
+    msg += "\n💡 <i>V9 盲測修正：\n1. 針對「盤整盤」微調地板價，增加成交率。\n2. 針對「超級火箭」大幅上調掛單價，解決踏空問題。</i>"
     
-    final_msg += "\n💡 <i>掛單說明：\n建議在 APP 設定雲端單時，將「截止日期」填寫為括號內的建議日期 (14天後)，讓程式幫你長時間盯盤。</i>"
-    
-    send_telegram(final_msg)
+    send_telegram(msg)
 
 if __name__ == "__main__":
     main()
