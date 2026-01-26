@@ -54,13 +54,13 @@ def adjust_tw_price(price):
     return math.ceil(price / tick) * tick
 
 def get_sentiment_analysis(score):
-    if score <= 10: return "💀 崩盤", "血流成河，閉眼買"
-    elif score <= 25: return "🔴 熊市", "別人恐懼我貪婪"
-    elif score <= 40: return "🟠 焦慮", "信心動搖，耐心等待"
-    elif score <= 59: return "⚪ 中立", "多空不明，保留現金"
-    elif score <= 74: return "🟢 回升", "趨勢轉好，暫不加碼"
-    elif score <= 89: return "🚀 過熱", "風險劇增，禁止追價"
-    else: return "🔥 泡沫", "最後煙火，準備閃人"
+    if score <= 10: return "💀 崩盤", "血流成河"
+    elif score <= 25: return "🔴 熊市", "極度恐慌"
+    elif score <= 40: return "🟠 焦慮", "恐慌"
+    elif score <= 59: return "⚪ 中立", "觀望"
+    elif score <= 74: return "🟢 回升", "貪婪"
+    elif score <= 89: return "🚀 過熱", "極度貪婪"
+    else: return "🔥 泡沫", "快逃"
 
 def calculate_drop_info(current, target, is_crypto):
     if current <= 0: return ""
@@ -70,7 +70,7 @@ def calculate_drop_info(current, target, is_crypto):
         today = datetime.now(TW_TZ)
         days_left = max(0, 4 - today.weekday())
         theoretical_min = current * (0.9 ** (days_left + 1))
-        if target < theoretical_min: note = "⚠️難達"
+        if target < theoretical_min: note = "⚠️本週難達"
     return note
 
 # --- 核心運算 ---
@@ -88,7 +88,6 @@ def calculate_metrics(df_daily, is_crypto=False):
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs)).iloc[-1]
 
-    # 定錨週線
     df_wk = df_daily.resample('W-FRI').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
     if len(df_wk) < 2: ref_idx = -1; use_wk = False
     else: ref_idx = -2; use_wk = True
@@ -123,12 +122,10 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
         
         curr, ma20, ma60, low_bb, atr, rsi, bear, emerg = data
         
-        # 情緒
         if is_crypto and crypto_fng: score = crypto_fng
         else: score = int(rsi)
-        sent_lv, sent_desc = get_sentiment_analysis(score)
+        sent_lv, sent_short_desc = get_sentiment_analysis(score)
 
-        # 策略
         if bear:
             raw = [
                 {"p": curr-(atr*0.5), "l": "合理"},
@@ -142,7 +139,6 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
                 {"p": low_bb, "l": "超跌"}
             ]
 
-        # 優化
         valid = []
         for s in raw:
             p = s["p"]
@@ -156,7 +152,6 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
             valid.append({"price": p, "label": s["l"], "note": note})
 
         valid.sort(key=lambda x: x["price"], reverse=True)
-        # 去重
         final = []
         seen = set()
         for v in valid:
@@ -166,7 +161,6 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
         
         if not final: return None
         
-        # 推薦
         if bear or rsi>70: best_idx = len(final)-1
         else: best_idx = min(1, len(final)-1)
         best = final[best_idx]
@@ -174,8 +168,8 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
         return {
             "name": name, "ticker": ticker, "is_crypto": is_crypto,
             "current": curr, "rsi": rsi, "score": score, 
-            "sent_lv": sent_lv, "sent_desc": sent_desc, "emerg": emerg,
-            "best": best, "strategies": final
+            "sent_lv": sent_lv, "sent_short_desc": sent_short_desc, # 傳遞簡短描述
+            "emerg": emerg, "best": best, "strategies": final
         }
     except: return None
 
@@ -206,7 +200,6 @@ def generate_telegram_report(data, max_rate):
     msg += "--------------------\n"
     return msg
 
-# 修改：將緊急訊息也存入 JSON
 def save_widget_data(results, valid_until, max_rate, global_emerg):
     widget_data = []
     for item in results:
@@ -222,24 +215,28 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
             p_str = f"{item['current']:.0f}"
             sig_p = f"{item['best']['price']:.0f}"
 
+        # 這裡從 sent_lv 取出圖示，從 sent_short_desc 取出文字
+        icon = item['sent_lv'].split(" ")[0] # 🔴
+        
         widget_data.append({
             "name": item['name'].replace("🇹🇼 ", "").replace("🪙 ", ""),
             "price": p_str,
             "score": item['score'],
-            "sent_short": item['sent_lv'].split(" ")[0], # 取圖示 (如 🔴)
+            "sent_icon": icon,
+            "sent_text": item['sent_short_desc'], # 如：極度恐慌
             "signal_label": lbl,
             "signal_price": sig_p,
-            "signal_note": item['best']['note'], # 新增跌幅%
+            "signal_note": item['best']['note'],
             "signal_color": color,
             "is_crypto": item['is_crypto'],
-            "emerg": item['emerg'] # 單一標的緊急
+            "emerg": item['emerg']
         })
         
     output = {
         "updated_at": datetime.now(TW_TZ).strftime('%m/%d %H:%M'),
         "valid_until": valid_until,
         "max_rate": max_rate,
-        "global_emerg": global_emerg, # 全局緊急
+        "global_emerg": global_emerg,
         "data": widget_data
     }
     
@@ -247,7 +244,7 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
         json.dump(output, f, ensure_ascii=False, indent=2)
 
 def main():
-    print(f"V15.0 Start: {datetime.now(TW_TZ)}")
+    print(f"V15.1 Start: {datetime.now(TW_TZ)}")
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
