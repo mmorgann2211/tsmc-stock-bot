@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-# 設定目標：名稱 vs 代號
 TARGETS = {
     "🇹🇼 台積電": "2330.TW",
     "🇹🇼 保德信市值": "009803.TW",
@@ -19,392 +18,258 @@ TARGETS = {
     "🪙 Render": "RENDER-USD"
 }
 
-# 設定時區 (台灣 +8)
 TW_TZ = timezone(timedelta(hours=8))
 
-# --- 基礎函式 ---
-
+# --- 基礎工具 ---
 def send_telegram(msg):
-    """發送 Telegram 訊息"""
     if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}
-    try:
-        requests.post(url, data=payload)
-    except Exception as e:
-        print(f"Telegram 傳送失敗: {e}")
+    try: requests.post(url, data=payload)
+    except Exception as e: print(f"Telegram Error: {e}")
 
 def get_crypto_fng():
-    """取得加密貨幣貪婪恐慌指數"""
     try:
         r = requests.get("https://api.alternative.me/fng/", timeout=5)
         return int(r.json()['data'][0]['value'])
-    except:
-        return None
+    except: return None
 
 def get_max_usdt_rate():
-    """取得 MAX 交易所 USDT/TWD 匯率"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         r = requests.get("https://max-api.maicoin.com/api/v2/tickers/usdttwd", headers=headers, timeout=5)
         return float(r.json()['sell'])
     except:
-        try:
-            # 備用：Yahoo Finance
-            return float(yf.Ticker("USDTWD=X").history(period="1d")['Close'].iloc[-1])
-        except:
-            return 32.5 # 最後備用值
+        try: return float(yf.Ticker("USDTWD=X").history(period="1d")['Close'].iloc[-1])
+        except: return 32.5
 
 def adjust_tw_price(price):
-    """台股價格校正 (符合升降單位，並無條件進位)"""
     if pd.isna(price) or price <= 0: return 0
-    
     if price < 10: tick = 0.01
     elif price < 50: tick = 0.05
     elif price < 100: tick = 0.1
     elif price < 500: tick = 0.5
     elif price < 1000: tick = 1.0
     else: tick = 5.0
-    
     return math.ceil(price / tick) * tick
 
 def get_sentiment_analysis(score):
-    """七級情緒分析"""
-    if score <= 10: return "💀 崩盤 (極度恐慌)", "血流成河，這是上帝的禮物，閉眼買。"
-    elif score <= 25: return "🔴 熊市 (恐慌)", "市場悲觀，別人恐懼我貪婪，分批接。"
-    elif score <= 40: return "🟠 焦慮 (緊張)", "信心動搖，尋找支撐，耐心等待。"
-    elif score <= 59: return "⚪ 中立 (觀望)", "多空不明，不要隨意出手，保留現金。"
-    elif score <= 74: return "🟢 回升 (貪婪)", "趨勢轉好，手上籌碼續抱，暫不加碼。"
-    elif score <= 89: return "🚀 過熱 (極度貪婪)", "情緒高昂，風險劇增，絕對禁止追價。"
-    else: return "🔥 泡沫 (瘋狂)", "最後煙火，人聲鼎沸，準備隨時閃人。"
+    if score <= 10: return "💀 崩盤", "血流成河，閉眼買"
+    elif score <= 25: return "🔴 熊市", "別人恐懼我貪婪"
+    elif score <= 40: return "🟠 焦慮", "信心動搖，耐心等待"
+    elif score <= 59: return "⚪ 中立", "多空不明，保留現金"
+    elif score <= 74: return "🟢 回升", "趨勢轉好，暫不加碼"
+    elif score <= 89: return "🚀 過熱", "風險劇增，禁止追價"
+    else: return "🔥 泡沫", "最後煙火，準備閃人"
 
 def calculate_drop_info(current, target, is_crypto):
-    """計算跌幅與台股物理限制"""
-    if current <= 0: return "N/A"
+    if current <= 0: return ""
     drop_pct = (target - current) / current * 100
-    
     note = f"({drop_pct:.1f}%)"
-    
-    # 台股物理限制檢查 (漲跌幅 10%)
     if not is_crypto:
-        # 計算本週還剩幾天 (包含今天)
         today = datetime.now(TW_TZ)
-        weekday = today.weekday() # 0=Mon, 4=Fri
-        days_left = 4 - weekday
-        if days_left < 0: days_left = 0 # 週末
-        
-        # 連續跌停極限公式：現價 * (0.9 ^ (剩餘天數+1))
-        # +1 是假設今天還沒收盤，今天也有可能跌停
+        days_left = max(0, 4 - today.weekday())
         theoretical_min = current * (0.9 ** (days_left + 1))
-        
-        if target < theoretical_min:
-            note += " ⚠️<b>本週難達</b>"
-            
+        if target < theoretical_min: note = "⚠️難達"
     return note
 
-# --- 核心分析邏輯 ---
-
+# --- 核心運算 ---
 def calculate_metrics(df_daily, is_crypto=False):
     df_daily = df_daily.dropna()
     if len(df_daily) < 20: return None
 
-    # 1. 取得即時資訊
-    current_price = df_daily['Close'].iloc[-1]
-    prev_close = df_daily['Close'].iloc[-2]
-    daily_change_pct = (current_price - prev_close) / prev_close * 100
+    current = df_daily['Close'].iloc[-1]
+    prev = df_daily['Close'].iloc[-2]
+    daily_chg = (current - prev) / prev * 100
     
-    # RSI (即時)
     delta = df_daily['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss
-    daily_rsi = 100 - (100 / (1 + rs)).iloc[-1]
+    rsi = 100 - (100 / (1 + rs)).iloc[-1]
 
-    # 2. 轉換週線 (定錨)
-    # 強制鎖定：不管今天是星期幾，都只看「上週五」收盤的數據
-    df_weekly = df_daily.resample('W-FRI').agg({
-        'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'
-    }).dropna()
+    # 定錨週線
+    df_wk = df_daily.resample('W-FRI').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
+    if len(df_wk) < 2: ref_idx = -1; use_wk = False
+    else: ref_idx = -2; use_wk = True
+
+    close_s = df_wk['Close'] if use_wk else df_daily['Close']
+    w_ma20 = close_s.rolling(20).mean().iloc[ref_idx]
+    w_ma60 = close_s.rolling(60).mean().iloc[ref_idx]
+    if pd.isna(w_ma60) or w_ma60==0: w_ma60 = w_ma20 * 0.9
+
+    std20 = close_s.rolling(20).std().iloc[ref_idx]
+    w_low_bb = w_ma20 - (std20 * 2.0)
     
-    if len(df_weekly) < 2: 
-        ref_idx = -1 
-        use_weekly = False
-    else:
-        ref_idx = -2 
-        use_weekly = True
+    hl = (df_wk['High'] - df_wk['Low']) if use_wk else (df_daily['High'] - df_daily['Low']) * 5
+    w_atr = hl.rolling(14).mean().iloc[ref_idx]
 
-    close_series = df_weekly['Close'] if use_weekly else df_daily['Close']
+    emerg = None
+    if daily_chg < -5 and not is_crypto: emerg = f"📉閃崩{daily_chg:.1f}%"
+    elif daily_chg < -8 and is_crypto: emerg = f"📉閃崩{daily_chg:.1f}%"
+    elif daily_chg > 8: emerg = f"🚀噴出{daily_chg:.1f}%"
+    elif rsi < 20: emerg = "🩸RSI超賣"
     
-    # 計算均線 (防呆：如果 NaN 改用短週期替代)
-    w_ma20 = close_series.rolling(window=20).mean().iloc[ref_idx]
-    
-    # Fix 0元問題：如果資料不足算不出 MA60，改用 MA20 * 0.9 (九折) 暫代
-    w_ma60 = close_series.rolling(window=60).mean().iloc[ref_idx]
-    if pd.isna(w_ma60) or w_ma60 == 0:
-        w_ma60 = w_ma20 * 0.9
+    is_bear = current < w_ma60
+    return current, w_ma20, w_ma60, w_low_bb, w_atr, rsi, is_bear, emerg
 
-    std20 = close_series.rolling(window=20).std().iloc[ref_idx]
-    w_lower_bb = w_ma20 - (std20 * 2.0)
-    
-    if use_weekly:
-        high_low = df_weekly['High'] - df_weekly['Low']
-    else:
-        high_low = (df_daily['High'] - df_daily['Low']) * 5
-        
-    w_atr = high_low.rolling(window=14).mean().iloc[ref_idx]
-
-    # 3. 緊急訊號判斷
-    emergency = None
-    if daily_change_pct < -5 and not is_crypto:
-        emergency = f"📉 <b>閃崩警報 (單日跌 {daily_change_pct:.1f}%)</b>"
-    elif daily_change_pct < -8 and is_crypto:
-        emergency = f"📉 <b>閃崩警報 (單日跌 {daily_change_pct:.1f}%)</b>"
-    elif daily_change_pct > 8:
-        emergency = f"🚀 <b>噴出警報 (單日漲 {daily_change_pct:.1f}%)</b>"
-    elif daily_rsi < 20:
-        emergency = "🩸 <b>RSI 超賣 (恐慌極致)</b>"
-    
-    is_bear_market = current_price < w_ma60
-
-    return current_price, w_ma20, w_ma60, w_lower_bb, w_atr, daily_rsi, is_bear_market, emergency
-
-def analyze_target(name, ticker, max_rate, crypto_fng_val):
+def analyze_target(name, ticker, max_rate, crypto_fng):
     try:
-        # 抓取 2年 資料
-        df = yf.Ticker(ticker).history(period="2y") 
+        df = yf.Ticker(ticker).history(period="2y")
         if df.empty: return None
-
         is_crypto = "USD" in ticker
         data = calculate_metrics(df, is_crypto)
         if not data: return None
         
-        current, w_ma20, w_ma60, w_lower_bb, w_atr, rsi, is_bear, emergency = data
+        curr, ma20, ma60, low_bb, atr, rsi, bear, emerg = data
         
-        # --- 情緒分數計算 ---
-        if is_crypto and crypto_fng_val is not None:
-            sentiment_score = crypto_fng_val
-        else:
-            sentiment_score = int(rsi)
-        sentiment_level, sentiment_desc = get_sentiment_analysis(sentiment_score)
+        # 情緒
+        if is_crypto and crypto_fng: score = crypto_fng
+        else: score = int(rsi)
+        sent_lv, sent_desc = get_sentiment_analysis(score)
 
-        # --- 策略價格計算 ---
-        if is_bear:
-            # 熊市邏輯
-            p1 = current - (w_atr * 0.5)
-            p2 = min(w_lower_bb, w_ma60 - w_atr)
-            discount = 0.90 if is_crypto else 0.95
-            p3 = w_lower_bb * discount
-            raw_strategies = [
-                {"price": p1, "label": "合理"},
-                {"price": p2, "label": "便宜"},
-                {"price": p3, "label": "超跌"}
+        # 策略
+        if bear:
+            raw = [
+                {"p": curr-(atr*0.5), "l": "合理"},
+                {"p": min(low_bb, ma60-atr), "l": "便宜"},
+                {"p": low_bb*(0.9 if is_crypto else 0.95), "l": "超跌"}
             ]
         else:
-            # 牛市邏輯
-            raw_strategies = [
-                {"price": w_ma20, "label": "合理"},
-                {"price": w_ma60, "label": "便宜"},
-                {"price": w_lower_bb, "label": "超跌"}
+            raw = [
+                {"p": ma20, "l": "合理"},
+                {"p": ma60, "l": "便宜"},
+                {"p": low_bb, "l": "超跌"}
             ]
 
-        # --- 價格優化與排序 ---
-        valid_prices = []
-        for s in raw_strategies:
-            p = s["price"]
-            # 過濾無效價格
-            if pd.isna(p) or p <= 0: continue
-            
-            # 台股校正
+        # 優化
+        valid = []
+        for s in raw:
+            p = s["p"]
+            if pd.isna(p) or p<=0: continue
             if not is_crypto: p = adjust_tw_price(p)
-            
-            # 防呆：掛單不能高於現價 (囤貨原則)
-            if p >= current:
-                p = current * 0.99
+            if p >= curr:
+                p = curr * 0.99
                 if not is_crypto: p = adjust_tw_price(p)
             
-            valid_prices.append(p)
-        
-        # 去重並由高到低排序 (確保 🟢 > 🟡 > 🔴)
-        valid_prices = sorted(list(set(valid_prices)), reverse=True)
-        
-        # 重新分配標籤 (最多3個：高=合理, 中=便宜, 低=超跌)
-        final_strategies = []
-        labels_pool = ["合理", "便宜", "超跌"]
-        
-        for i, price in enumerate(valid_prices):
-            if i >= 3: break
-            label = labels_pool[i]
-            
-            # 計算跌幅文字
-            drop_info = calculate_drop_info(current, price, is_crypto)
-            
-            final_strategies.append({
-                "price": price,
-                "label": label,
-                "note": drop_info
-            })
+            note = calculate_drop_info(curr, p, is_crypto)
+            valid.append({"price": p, "label": s["l"], "note": note})
 
-        # AI 推薦
-        if is_bear: best_idx = len(final_strategies) - 1 # 熊市選最低
-        elif rsi > 70: best_idx = len(final_strategies) - 1 # 過熱選最低
-        else: best_idx = min(1, len(final_strategies) - 1) # 正常選中間(便宜)
+        valid.sort(key=lambda x: x["price"], reverse=True)
+        # 去重
+        final = []
+        seen = set()
+        for v in valid:
+            if v["price"] not in seen:
+                final.append(v)
+                seen.add(v["price"])
         
-        # 避免空陣列
-        if not final_strategies: return None
+        if not final: return None
+        
+        # 推薦
+        if bear or rsi>70: best_idx = len(final)-1
+        else: best_idx = min(1, len(final)-1)
+        best = final[best_idx]
 
-        best_strat = final_strategies[best_idx]
-        
-        # --- 準備回傳結構 (給主程式用) ---
         return {
-            "name": name,
-            "ticker": ticker,
-            "is_crypto": is_crypto,
-            "current": current,
-            "rsi": rsi,
-            "sentiment_score": sentiment_score,
-            "sentiment_level": sentiment_level,
-            "sentiment_desc": sentiment_desc,
-            "emergency": emergency,
-            "best_strat": best_strat,
-            "strategies": final_strategies
+            "name": name, "ticker": ticker, "is_crypto": is_crypto,
+            "current": curr, "rsi": rsi, "score": score, 
+            "sent_lv": sent_lv, "sent_desc": sent_desc, "emerg": emerg,
+            "best": best, "strategies": final
         }
+    except: return None
 
-    except Exception as e:
-        print(f"Error {name}: {e}")
-        return None
-
-# --- 產生 Telegram 訊息文字 ---
 def generate_telegram_report(data, max_rate):
-    if not data: return ""
-    
-    colors = {"合理": "🟢", "便宜": "🟡", "超跌": "🔴"}
-    name = data['name']
-    current = data['current']
-    best = data['best_strat']
-    is_crypto = data['is_crypto']
-    
-    report = f"<b>{name}</b>\n"
-    
-    # 價格顯示
-    if is_crypto:
-        price_txt = f"{current:.2f} U"
-        if max_rate: price_txt += f" (約 {current*max_rate:.0f} NT)"
-        
-        rec_str = f"{best['price']:.2f} U"
-        if ("SOL" in data['ticker'] or "RENDER" in data['ticker']) and max_rate:
-             rec_str += f" ({best['price']*max_rate:.0f} NT)"
+    colors = {"合理":"🟢", "便宜":"🟡", "超跌":"🔴"}
+    if data['is_crypto']:
+        p_txt = f"{data['current']:.2f} U"
+        if max_rate: p_txt += f" (≈{data['current']*max_rate:.0f})"
+        r_str = f"{data['best']['price']:.2f} U"
     else:
-        price_txt = f"{current:.0f}"
-        rec_str = f"{best['price']:.0f}"
-        
-    report += f"現價：<code>{price_txt}</code>\n"
-    report += f"情緒：{data['sentiment_level']} ({data['sentiment_score']})\n"
-    report += f"💡 <i>{data['sentiment_desc']}</i>\n\n"
-    
-    if data['emergency']:
-        report += f"{data['emergency']}\n"
-        report += f"⚠️ <b>建議暫停掛單，觀察 {best['price']:.0f} 是否有撐！</b>\n"
-    else:
-        report += f"🏆 首選：{colors[best['label']]} <b><code>{rec_str}</code></b> {best['note']}\n"
-    
-    # 列表
-    for item in data['strategies']:
-        label = item['label']
-        if is_crypto:
-             p_str = f"{item['price']:.2f} U"
-             if ("SOL" in data['ticker'] or "RENDER" in data['ticker']) and max_rate:
-                 p_str += f" ({item['price']*max_rate:.0f} NT)"
-        else:
-             p_str = f"{item['price']:.0f}"
-        
-        report += f"• {colors[label]} {label}：<code>{p_str}</code> {item['note']}\n"
-        
-    report += "--------------------\n"
-    return report
+        p_txt = f"{data['current']:.0f}"
+        r_str = f"{data['best']['price']:.0f}"
 
-# --- 儲存 Widget JSON ---
-def save_widget_data(analyzed_list, valid_until, max_rate):
-    widget_data = []
+    msg = f"<b>{data['name']}</b>\n現價：<code>{p_txt}</code>\n"
+    msg += f"情緒：{data['sent_lv']} ({data['score']})\n"
     
-    for item in analyzed_list:
+    if data['emerg']:
+        msg += f"🚨 {data['emerg']}\n⚠️ 暫停掛單！\n"
+    else:
+        msg += f"🏆 首選：{colors[data['best']['label']]} <b><code>{r_str}</code></b> {data['best']['note']}\n"
+    
+    for s in data['strategies']:
+        lbl = s['label']
+        if data['is_crypto']: p = f"{s['price']:.2f} U"
+        else: p = f"{s['price']:.0f}"
+        msg += f"• {colors[lbl]} {lbl}：<code>{p}</code> {s['note']}\n"
+    
+    msg += "--------------------\n"
+    return msg
+
+# 修改：將緊急訊息也存入 JSON
+def save_widget_data(results, valid_until, max_rate, global_emerg):
+    widget_data = []
+    for item in results:
         if not item: continue
         
-        # 轉換燈號顏色代碼
-        label = item['best_strat']['label']
-        if label == "合理": color = "green"
-        elif label == "便宜": color = "yellow"
-        else: color = "red"
+        lbl = item['best']['label']
+        color = "green" if lbl=="合理" else "yellow" if lbl=="便宜" else "red"
         
-        # 格式化價格
         if item['is_crypto']:
-            price_str = f"{item['current']:.2f}"
-            signal_price = f"{item['best_strat']['price']:.2f}"
+            p_str = f"{item['current']:.2f}"
+            sig_p = f"{item['best']['price']:.2f}"
         else:
-            price_str = f"{item['current']:.0f}"
-            signal_price = f"{item['best_strat']['price']:.0f}"
+            p_str = f"{item['current']:.0f}"
+            sig_p = f"{item['best']['price']:.0f}"
 
         widget_data.append({
             "name": item['name'].replace("🇹🇼 ", "").replace("🪙 ", ""),
-            "price": price_str,
-            "score": item['sentiment_score'],
-            "signal_label": label,
-            "signal_price": signal_price,
+            "price": p_str,
+            "score": item['score'],
+            "sent_short": item['sent_lv'].split(" ")[0], # 取圖示 (如 🔴)
+            "signal_label": lbl,
+            "signal_price": sig_p,
+            "signal_note": item['best']['note'], # 新增跌幅%
             "signal_color": color,
-            "is_crypto": item['is_crypto']
+            "is_crypto": item['is_crypto'],
+            "emerg": item['emerg'] # 單一標的緊急
         })
         
     output = {
         "updated_at": datetime.now(TW_TZ).strftime('%m/%d %H:%M'),
         "valid_until": valid_until,
         "max_rate": max_rate,
+        "global_emerg": global_emerg, # 全局緊急
         "data": widget_data
     }
     
     with open('widget_data.json', 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print("Widget data saved.")
 
-# --- 主程式 ---
 def main():
-    now = datetime.now(TW_TZ)
-    print(f"V14.0 執行時間: {now}")
-    
+    print(f"V15.0 Start: {datetime.now(TW_TZ)}")
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
-    # 計算下週五
-    today = datetime.now()
-    days_ahead = 4 - today.weekday()
-    if days_ahead < 0: days_ahead += 7
-    next_fri = (today + timedelta(days=days_ahead)).strftime('%m/%d')
+    today = datetime.now(TW_TZ)
+    days = 4 - today.weekday()
+    if days < 0: days += 7
+    next_fri = (today + timedelta(days=days)).strftime('%m/%d')
     
-    analyzed_results = []
-    is_emergency_global = False
+    results = []
+    global_emerg = False
     
-    # 1. 執行分析
-    for name, ticker in TARGETS.items():
-        data = analyze_target(name, ticker, max_rate, c_val)
-        if data:
-            analyzed_results.append(data)
-            if data['emergency']: is_emergency_global = True
+    for n, t in TARGETS.items():
+        d = analyze_target(n, t, max_rate, c_val)
+        if d:
+            results.append(d)
+            if d['emerg']: global_emerg = True
             
-    # 2. 產生 Telegram 訊息
-    if is_emergency_global:
-        header = "🚨🚨 <b>緊急：資產訊號警報</b> 🚨🚨\n"
-        header += "<i>偵測到劇烈波動，請檢查下方紅字警示！</i>\n\n"
-    else:
-        header = f"📊 <b>週線囤貨日報 ({now.strftime('%m/%d')})</b>\n"
-        if max_rate: header += f"🇹🇼 MAX 匯率：{max_rate:.2f}\n"
-        header += f"📅 <b>本週掛單有效至：{next_fri} (週五)</b>\n"
-        header += "✅ 結構穩健，無需頻繁改單。\n\n"
-        
-    reports_text = [generate_telegram_report(d, max_rate) for d in analyzed_results]
-    final_msg = header + "".join(reports_text)
+    header = "🚨 <b>緊急警報</b> 🚨\n" if global_emerg else f"📊 <b>週線囤貨 ({today.strftime('%m/%d')})</b>\n有效至：{next_fri}\n\n"
+    msgs = [generate_telegram_report(d, max_rate) for d in results]
+    send_telegram(header + "".join(msgs))
     
-    send_telegram(final_msg)
-    
-    # 3. 儲存 Widget JSON
-    save_widget_data(analyzed_results, next_fri, max_rate)
+    save_widget_data(results, next_fri, max_rate, global_emerg)
 
 if __name__ == "__main__":
     main()
