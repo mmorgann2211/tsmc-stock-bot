@@ -48,6 +48,7 @@ def get_max_usdt_rate():
 
 def adjust_tw_price(price):
     """台股價格校正 (無條件進位)"""
+    if pd.isna(price): return 0 # 防呆 NaN
     if price < 10: tick = 0.01
     elif price < 50: tick = 0.05
     elif price < 100: tick = 0.1
@@ -56,84 +57,135 @@ def adjust_tw_price(price):
     else: tick = 5.0
     return math.ceil(price / tick) * tick
 
-# --- V11.0 核心：低價囤貨邏輯 (Weekly Value Investing) ---
+# --- V11.1 核心：智能囤貨邏輯 (含熊市修正) ---
 def calculate_metrics(df_daily, is_crypto=False):
-    # 1. 轉週線 (Weekly Resample) - 過濾短線雜訊
-    df_weekly = df_daily.resample('W-FRI').agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last'
-    })
-    
-    # 確保資料足夠
-    if len(df_weekly) < 60: return None
+    # 1. 資料預處理 (防呆 NaN)
+    df_daily = df_daily.dropna()
+    if len(df_daily) < 20: return None
 
     current_price = df_daily['Close'].iloc[-1]
     
-    # 定錨點：參考「上一週收盤」的數值 (本週固定)
-    ref_idx = -1 
+    # 2. 嘗試轉換週線
+    # 如果資料不足 60週 (約420天)，則降級使用日線分析
+    use_weekly = len(df_daily) > 420
     
-    # 週線均線 (大趨勢)
-    w_ma20 = df_weekly['Close'].rolling(window=20).mean().iloc[ref_idx] # 週月線 (中線成本)
-    w_ma60 = df_weekly['Close'].rolling(window=60).mean().iloc[ref_idx] # 週季線 (長線成本)
-    
-    # 週線布林通道 (統計學超跌區)
-    w_std20 = df_weekly['Close'].rolling(window=20).std().iloc[ref_idx]
-    w_lower_bb = w_ma20 - (w_std20 * 2) # 布林下緣
-    
-    # 週線 RSI (判斷是否過熱)
-    delta = df_weekly['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    w_rsi = 100 - (100 / (1 + rs)).iloc[ref_idx]
+    if use_weekly:
+        df_weekly = df_daily.resample('W-FRI').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'
+        }).dropna()
+        
+        # 定錨點：上一週收盤
+        ref_idx = -2 if len(df_weekly) >= 2 else -1
+        
+        w_ma20 = df_weekly['Close'].rolling(window=20).mean().iloc[ref_idx]
+        w_ma60 = df_weekly['Close'].rolling(window=60).mean().iloc[ref_idx]
+        
+        # 週線布林通道
+        w_std20 = df_weekly['Close'].rolling(window=20).std().iloc[ref_idx]
+        w_lower_bb = w_ma20 - (w_std20 * 2.0)
+        
+        # 週線 ATR (用來計算熊市支撐)
+        w_high_low = df_weekly['High'] - df_weekly['Low']
+        w_atr = w_high_low.rolling(window=14).mean().iloc[ref_idx]
+        
+        # 週線 RSI
+        delta = df_weekly['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        w_rsi = 100 - (100 / (1 + rs)).iloc[ref_idx]
+        
+        # 判斷趨勢：如果現價 < 週MA60，視為熊市
+        is_bear_market = current_price < w_ma60
+        
+    else:
+        # 資料不足 (針對 009803 等新股)，降級為日線邏輯
+        w_ma20 = df_daily['Close'].rolling(window=20).mean().iloc[-1]
+        w_ma60 = df_daily['Close'].rolling(window=60).mean().iloc[-1]
+        
+        std20 = df_daily['Close'].rolling(window=20).std().iloc[-1]
+        w_lower_bb = w_ma20 - (std20 * 2.0)
+        
+        high_low = df_daily['High'] - df_daily['Low']
+        w_atr = high_low.rolling(window=14).mean().iloc[-1] * 5 # 日ATR x 5 約等於週波動
+        
+        delta = df_daily['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        w_rsi = 100 - (100 / (1 + rs)).iloc[-1]
+        
+        is_bear_market = current_price < w_ma60
 
-    # 判斷目前價格位階
-    status = "盤整區"
-    if current_price < w_ma60: status = "🟢 低估區 (熊市)"
-    elif current_price < w_ma20: status = "🟡 合理區 (回檔)"
-    elif w_rsi > 75: status = "🔴 過熱區 (慎入)"
-    else: status = "📈 趨勢向上"
+    # 判斷位階文字
+    if is_bear_market: status = "🐻 熊市 (空頭排列)"
+    elif current_price < w_ma20: status = "🟡 回檔 (整理區)"
+    elif w_rsi > 75: status = "🔴 過熱 (慎入)"
+    else: status = "🐂 多頭 (趨勢向上)"
 
-    return current_price, w_ma20, w_ma60, w_lower_bb, w_rsi, status
+    return current_price, w_ma20, w_ma60, w_lower_bb, w_atr, w_rsi, status, is_bear_market
 
 def analyze_target(name, ticker, max_rate, crypto_fng_val):
     try:
-        # 抓取長週期資料
+        # 抓取 2年 資料
         df = yf.Ticker(ticker).history(period="2y") 
         if df.empty: return f"⚠️ {name}: 無資料\n"
 
         is_crypto = "USD" in ticker
         data = calculate_metrics(df, is_crypto)
-        if not data: return f"⚠️ {name}: 資料不足\n"
+        if not data: return f"⚠️ {name}: 資料不足 (太新或無成交)\n"
         
-        current, w_ma20, w_ma60, w_lower_bb, w_rsi, status = data
+        current, w_ma20, w_ma60, w_lower_bb, w_atr, w_rsi, status, is_bear = data
         
-        # --- V11.0 囤貨策略：只買便宜，不追高 ---
+        # --- V11.1 策略：區分 牛市 vs 熊市 ---
         strategies = []
 
-        # 策略A (合理價)：週MA20
-        # 這是多頭市場回檔的第一個支撐，雖然不夠便宜，但適合不想空手的人
-        p1, d1 = w_ma20, "合理估值 (週MA20)"
-        strategies.append({"price": p1, "desc": d1, "label": "合理"})
+        if is_bear:
+            # === 熊市邏輯 (Bear Market) ===
+            # 均線在頭上是壓力，不能買。改用 ATR 往下找支撐。
+            
+            # 1. 合理價：現價 - 0.5倍週波動 (搶反彈)
+            p1 = current - (w_atr * 0.5)
+            d1 = "熊市反彈 (ATR支撐)"
+            l1 = "合理"
 
-        # 策略B (便宜價)：週MA60
-        # 這是長線牛熊分界，買在這裡通常長期勝率極高
-        p2, d2 = w_ma60, "價值投資 (週MA60)"
-        strategies.append({"price": p2, "desc": d2, "label": "便宜"})
+            # 2. 便宜價：布林下緣 (統計低點)
+            # 如果布林下緣比 ATR 還高 (盤整時)，取較低者
+            p2 = min(w_lower_bb, current - w_atr)
+            d2 = "價值區 (布林下緣)"
+            l2 = "便宜"
 
-        # 策略C (超跌價)：週布林下緣
-        # 這是統計學上的極端低點，通常伴隨恐慌，是囤貨最佳時機
-        # 如果現在已經是「低估區 (熊市)」，我們要在布林下緣再打折，確保接到血流成河的籌碼
-        if "低估區" in status:
+            # 3. 超跌價：布林下緣再打折 (恐慌底)
+            # Render 等高波動幣種，折扣不要打太深，否則買不到，改 0.9
             discount = 0.90 if is_crypto else 0.95
             p3 = w_lower_bb * discount
             d3 = "恐慌拋售 (破底價)"
+            l3 = "超跌"
+
         else:
+            # === 牛市邏輯 (Bull Market) ===
+            # 均線是支撐，回測均線買進。
+            
+            # 1. 合理價：週 MA20
+            p1 = w_ma20
+            d1 = "多頭回檔 (週MA20)"
+            l1 = "合理"
+
+            # 2. 便宜價：週 MA60
+            p2 = w_ma60
+            d2 = "牛熊分界 (週MA60)"
+            l2 = "便宜"
+
+            # 3. 超跌價：布林下緣
             p3 = w_lower_bb
-            d3 = "統計低點 (布林下緣)"
-        strategies.append({"price": p3, "desc": d3, "label": "超跌"})
+            d3 = "統計極值 (布林下緣)"
+            l3 = "超跌"
+            
+        strategies = [
+            {"price": p1, "desc": d1, "label": l1},
+            {"price": p2, "desc": d2, "label": l2},
+            {"price": p3, "desc": d3, "label": l3}
+        ]
 
         # --- 價格校正與防呆 ---
         valid_strategies = []
@@ -143,47 +195,50 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
             # 台股校正
             if not is_crypto: price = adjust_tw_price(price)
             
-            # 防呆：因為是囤貨，絕對不買貴
-            # 如果算出來的價格 > 現價，代表現在價格比均線還低
-            # 這時候直接掛「現價」往下打一點點，確保買得比現在更便宜
+            # 防呆：絕對不能高於現價
             if price >= current:
-                if strat["label"] == "合理": buffer = 0.99
+                # 依據標籤給予不同程度的下修
+                if strat["label"] == "合理": buffer = 0.98
                 elif strat["label"] == "便宜": buffer = 0.95
                 else: buffer = 0.90
                 
                 price = current * buffer
                 if not is_crypto: price = adjust_tw_price(price)
-                strat["desc"] += " (修正接刀)"
+                strat["desc"] = "修正接刀 (趨勢向下)"
 
+            strat["price"] = price
             valid_strategies.append(strat)
 
-        # 排序：由高到低 (合理 -> 便宜 -> 超跌)
+        # 排序
         valid_strategies.sort(key=lambda x: x["price"], reverse=True)
 
-        # --- AI 囤貨推薦 ---
-        # 邏輯：囤貨者最喜歡買綠色的 (超跌)，但如果沒跌那麼深，就分批買黃色的 (便宜)
-        # 基本上不推薦買合理的 (太貴)，除非大牛市怕買不到
-        
-        best_pick_idx = 1 # 預設推薦「便宜價」
-        ai_reason = "價格進入價值區，適合分批建倉。"
-
-        if "低估區" in status:
-            best_pick_idx = 2 # 推薦「超跌價」
-            ai_reason = "市場恐慌，請貪婪！掛超跌價接血籌碼。"
-        elif "過熱" in status:
-            best_pick_idx = 2 # 推薦「超跌價」
-            ai_reason = "目前過熱，耐心等待回測地板再買。"
-        
-        best_strat = valid_strategies[best_pick_idx]
+        # --- AI 推薦 ---
+        # 熊市推超跌，牛市推便宜
+        if is_bear:
+            best_idx = 2 # 熊市只買超跌
+            ai_reason = "處於空頭趨勢，嚴格執行「超跌價」掛單。"
+        elif w_rsi > 70:
+            best_idx = 2 # 過熱等超跌
+            ai_reason = "短線過熱，耐心等待回測地板。"
+        else:
+            best_idx = 1 # 正常多頭買便宜 (MA60)
+            ai_reason = "趨勢向上，掛「便宜價」分批佈局。"
+            
+        best_strat = valid_strategies[best_idx]
         
         # --- 輸出報表 ---
-        colors = {"合理": "🟢", "便宜": "🟡", "超跌": "🔴"} # 顏色代表價格高低
+        colors = {"合理": "🟢", "便宜": "🟡", "超跌": "🔴"}
         
         report = f"<b>{name}</b>\n"
         if is_crypto:
             price_txt = f"{current:.2f} U"
-            if max_rate: price_txt += f" (約 {current*max_rate:.0f} NT)"
+            # 顯示 MAX 匯率換算
+            if max_rate: 
+                price_txt += f" (約 {current*max_rate:.0f} NT)"
+            
             rec_str = f"{best_strat['price']:.2f} U"
+            if "SOL" in ticker and max_rate:
+                 rec_str += f" ({best_strat['price']*max_rate:.0f} NT)"
         else:
             price_txt = f"{current:.0f}"
             rec_str = f"{best_strat['price']:.0f}"
@@ -205,6 +260,9 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
             label = item['label']
             if is_crypto:
                  p_str = f"{item['price']:.2f} U"
+                 # 如果是 SOL，列表也顯示台幣
+                 if "SOL" in ticker and max_rate:
+                     p_str += f" ({item['price']*max_rate:.0f} NT)"
             else:
                  p_str = f"{item['price']:.0f}"
             report += f"• {colors[label]} {label}：<code>{p_str}</code> [{item['desc']}]\n"
@@ -217,18 +275,18 @@ def analyze_target(name, ticker, max_rate, crypto_fng_val):
 
 def main():
     now = datetime.now(TW_TZ)
-    print(f"V11.0 執行時間: {now}")
+    print(f"V11.1 執行時間: {now}")
     
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
-    msg = f"<b>📊 資產監控 V11.0 (低價囤貨版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
+    msg = f"<b>📊 資產監控 V11.1 (空頭修正版)</b>\n📅 {now.strftime('%Y-%m-%d')}\n"
     if max_rate: msg += f"🇹🇼 MAX 匯率：{max_rate:.2f}\n\n"
     
     for name, ticker in TARGETS.items():
         msg += analyze_target(name, ticker, max_rate, c_val)
         
-    msg += "\n💡 <i>V11 策略調整：\n專注於「週線級別」的低價籌碼。\n🟢 合理 = 週MA20\n🟡 便宜 = 週MA60\n🔴 超跌 = 布林下緣</i>"
+    msg += "\n💡 <i>Fix: 修正台積電 NaN 錯誤與熊市掛單邏輯。SOL 價格已加入 MAX 匯率換算。</i>"
     
     send_telegram(msg)
 
