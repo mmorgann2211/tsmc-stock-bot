@@ -1,0 +1,43 @@
+{
+  "updated_at": "01/27 03:22",
+  "valid_until": "01/30",
+  "max_rate": 31.465,
+  "data": [
+    {
+      "name": "台積電",
+      "price": "1755",
+      "score": 59,
+      "signal_label": "便宜",
+      "signal_price": "1195",
+      "signal_color": "yellow",
+      "is_crypto": false
+    },
+    {
+      "name": "保德信市值",
+      "price": "14",
+      "score": 75,
+      "signal_label": "超跌",
+      "signal_price": "11",
+      "signal_color": "red",
+      "is_crypto": false
+    },
+    {
+      "name": "Solana",
+      "price": "124.48",
+      "score": 20,
+      "signal_label": "超跌",
+      "signal_price": "74.51",
+      "signal_color": "red",
+      "is_crypto": true
+    },
+    {
+      "name": "Render",
+      "price": "1.93",
+      "score": 20,
+      "signal_label": "超跌",
+      "signal_price": "0.59",
+      "signal_color": "red",
+      "is_crypto": true
+    }
+  ]
+}
