@@ -1,21 +1,19 @@
-name: V11 Low-Cost Accumulation Bot
+name: V14 Stock Bot
 
 on:
   schedule:
-    # GitHub 使用 UTC 時間，台灣時間需 -8 小時
-    # 每天 08:00 (開盤規劃) -> UTC 00:00
-    # 每天 12:00 (盤中觀察) -> UTC 04:00
-    # 每天 14:00 (收盤確認) -> UTC 06:00
+    # 台灣時間 08:00, 12:00, 14:00 (UTC 00:00, 04:00, 06:00)
     - cron: '0 0 * * *'
     - cron: '0 4 * * *'
     - cron: '0 6 * * *'
-  
-  # 允許手動點擊按鈕觸發 (方便測試用)
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # 允許寫入權限 (為了 push json)
 
     steps:
       - name: Checkout code
@@ -24,7 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.11'
+          python-version: '3.11' # 使用最新版 Python
 
       - name: Install dependencies
         run: |
@@ -36,3 +34,11 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python bot.py
+
+      - name: Commit and Push JSON
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add widget_data.json
+          git commit -m "Update widget data" || exit 0
+          git push
