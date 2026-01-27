@@ -168,7 +168,7 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
         return {
             "name": name, "ticker": ticker, "is_crypto": is_crypto,
             "current": curr, "rsi": rsi, "score": score, 
-            "sent_lv": sent_lv, "sent_short_desc": sent_short_desc, # 傳遞簡短描述
+            "sent_lv": sent_lv, "sent_short_desc": sent_short_desc,
             "emerg": emerg, "best": best, "strategies": final
         }
     except: return None
@@ -200,6 +200,44 @@ def generate_telegram_report(data, max_rate):
     msg += "--------------------\n"
     return msg
 
+# 讀取舊資料
+def load_previous_data():
+    try:
+        with open('widget_data.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return None
+
+# 比對邏輯：檢查是否需要通知
+def check_if_changed(old_json, new_results, global_emerg):
+    if not old_json: return True # 沒舊資料，通知
+    if global_emerg: return True # 有緊急訊號，強制通知
+
+    # 建立舊資料的快速查找表 {name: {label, price}}
+    old_map = {}
+    for item in old_json.get('data', []):
+        old_map[item['name']] = {
+            'label': item['signal_label'],
+            'price': item['signal_price']
+        }
+
+    # 比對每一個標的
+    for item in new_results:
+        name_key = item['name'].replace("🇹🇼 ", "").replace("🪙 ", "")
+        if name_key not in old_map: return True # 新標的，通知
+        
+        old_item = old_map[name_key]
+        
+        # 取得新資料的字串型態價格 (為了跟 JSON 比對)
+        if item['is_crypto']: new_price_str = f"{item['best']['price']:.2f}"
+        else: new_price_str = f"{item['best']['price']:.0f}"
+        
+        # 比對重點：1. 燈號變了 2. 價格變了
+        if item['best']['label'] != old_item['label']: return True
+        if new_price_str != old_item['price']: return True
+        
+    return False # 都沒變，安靜
+
 def save_widget_data(results, valid_until, max_rate, global_emerg):
     widget_data = []
     for item in results:
@@ -215,15 +253,14 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
             p_str = f"{item['current']:.0f}"
             sig_p = f"{item['best']['price']:.0f}"
 
-        # 這裡從 sent_lv 取出圖示，從 sent_short_desc 取出文字
-        icon = item['sent_lv'].split(" ")[0] # 🔴
+        icon = item['sent_lv'].split(" ")[0]
         
         widget_data.append({
             "name": item['name'].replace("🇹🇼 ", "").replace("🪙 ", ""),
             "price": p_str,
             "score": item['score'],
             "sent_icon": icon,
-            "sent_text": item['sent_short_desc'], # 如：極度恐慌
+            "sent_text": item['sent_short_desc'],
             "signal_label": lbl,
             "signal_price": sig_p,
             "signal_note": item['best']['note'],
@@ -244,7 +281,7 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
         json.dump(output, f, ensure_ascii=False, indent=2)
 
 def main():
-    print(f"V15.1 Start: {datetime.now(TW_TZ)}")
+    print(f"V17.0 Smart Update: {datetime.now(TW_TZ)}")
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
@@ -262,11 +299,20 @@ def main():
             results.append(d)
             if d['emerg']: global_emerg = True
             
-    header = "🚨 <b>緊急警報</b> 🚨\n" if global_emerg else f"📊 <b>週線囤貨 ({today.strftime('%m/%d')})</b>\n有效至：{next_fri}\n\n"
-    msgs = [generate_telegram_report(d, max_rate) for d in results]
-    send_telegram(header + "".join(msgs))
+    # --- 智慧通知判斷 ---
+    old_json = load_previous_data()
+    should_notify = check_if_changed(old_json, results, global_emerg)
     
+    # 存新資料 (永遠執行，保證 Widget 是最新的)
     save_widget_data(results, next_fri, max_rate, global_emerg)
+    
+    if should_notify:
+        print("Status Changed or Emergency -> Sending Telegram")
+        header = "🚨 <b>緊急警報</b> 🚨\n" if global_emerg else f"📊 <b>資產狀態變更 ({today.strftime('%m/%d %H:%M')})</b>\n有效至：{next_fri}\n\n"
+        msgs = [generate_telegram_report(d, max_rate) for d in results]
+        send_telegram(header + "".join(msgs))
+    else:
+        print("No significant change -> Silent Update")
 
 if __name__ == "__main__":
     main()
