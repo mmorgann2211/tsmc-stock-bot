@@ -62,16 +62,11 @@ def get_sentiment_analysis(score):
     elif score <= 89: return "🚀 過熱", "極度貪婪"
     else: return "🔥 泡沫", "快逃"
 
-# V19 新增：投資心法與建議
 def get_psychological_note(label, is_bear):
-    if label == "超跌":
-        return "市場極度恐慌，這是價值投資者的機會。請確認資金可閒置2年以上，分批接刀。"
-    elif label == "便宜":
-        return "價格進入舒適區。不求買在最低，買在相對低點即可，耐心累積籌碼。"
-    elif label == "合理":
-        if is_bear: return "空頭趨勢中的反彈，風險較高，僅適合小量試單或觀望。"
-        else: return "多頭回檔，適合建立基本部位，保持平常心。"
-    return "觀望為主，保留現金。"
+    if label == "超跌": return "市場恐慌，確認資金可閒置2年以上，分批接刀。"
+    elif label == "便宜": return "價格進入舒適區，不求最低，耐心累積籌碼。"
+    elif label == "合理": return "趨勢回檔，建立基本部位，保持平常心。"
+    return "觀望為主。"
 
 def calculate_drop_info(current, target, is_crypto):
     if current <= 0: return ""
@@ -114,11 +109,14 @@ def calculate_metrics(df_daily, is_crypto=False):
     hl = (df_wk['High'] - df_wk['Low']) if use_wk else (df_daily['High'] - df_daily['Low']) * 5
     w_atr = hl.rolling(14).mean().iloc[ref_idx]
 
+    # [V20 FIX] RSI 滯後閥值：跌破 20 警報，漲回 25 才解除
+    # 這裡我們無法知道上一狀態，所以採用保守策略：
+    # 如果 RSI < 22 就視為危險區（折衷方案），避免 20 邊緣跳動
     emerg = None
     if daily_chg < -5 and not is_crypto: emerg = f"📉閃崩{daily_chg:.1f}%"
     elif daily_chg < -8 and is_crypto: emerg = f"📉閃崩{daily_chg:.1f}%"
     elif daily_chg > 8: emerg = f"🚀噴出{daily_chg:.1f}%"
-    elif rsi < 20: emerg = "🩸RSI超賣"
+    elif rsi < 22: emerg = "🩸RSI超賣" # 放寬到 22，減少頻繁切換
     
     is_bear = current < w_ma60
     return current, w_ma20, w_ma60, w_low_bb, w_atr, rsi, is_bear, emerg
@@ -184,19 +182,15 @@ def analyze_target(name, ticker, max_rate, crypto_fng):
         }
     except: return None
 
-# V19 修改：Telegram 報告增加詳細資訊
 def generate_telegram_report(data, max_rate):
     colors = {"合理":"🟢", "便宜":"🟡", "超跌":"🔴"}
     
-    # 價格格式化
     if data['is_crypto']:
         p_txt = f"{data['current']:.2f} U"
         if max_rate: p_txt += f" (≈{data['current']*max_rate:.0f} NT)"
-        
-        r_price = data['best']['price']
-        r_str = f"{r_price:.2f} U"
+        r_str = f"{data['best']['price']:.2f} U"
         if ("SOL" in data['ticker'] or "RENDER" in data['ticker']) and max_rate:
-             r_str += f" (≈{r_price*max_rate:.0f} NT)"
+             r_str += f" (≈{data['best']['price']*max_rate:.0f} NT)"
     else:
         p_txt = f"{data['current']:.0f}"
         r_str = f"{data['best']['price']:.0f}"
@@ -205,27 +199,21 @@ def generate_telegram_report(data, max_rate):
     msg += f"現價：<code>{p_txt}</code>\n"
     msg += f"情緒：{data['sent_lv']} ({data['score']})\n"
     
-    # 緊急狀態處理
     if data['emerg']:
-        msg += f"🚨 <b>{data['emerg']}</b>\n"
-        msg += f"⚠️ 建議暫停掛單，觀察市場反應！\n"
+        msg += f"🚨 <b>{data['emerg']}</b>\n⚠️ 建議暫停掛單，觀察市場反應！\n"
     else:
-        # 心法建議
         mindset = get_psychological_note(data['best']['label'], data['is_bear'])
         msg += f"🏆 首選：{colors[data['best']['label']]} <b><code>{r_str}</code></b> {data['best']['note']}\n"
         msg += f"🧠 心法：<i>{mindset}</i>\n"
     
-    # 完整列表
     for s in data['strategies']:
         lbl = s['label']
         if data['is_crypto']: 
             p = f"{s['price']:.2f} U"
-            # 列表也顯示台幣
             if ("SOL" in data['ticker'] or "RENDER" in data['ticker']) and max_rate:
                 p += f" (≈{s['price']*max_rate:.0f})"
         else: 
             p = f"{s['price']:.0f}"
-            
         msg += f"• {colors[lbl]} {lbl}：<code>{p}</code> {s['note']}\n"
     
     msg += "--------------------\n"
@@ -235,8 +223,7 @@ def load_previous_data():
     try:
         with open('widget_data.json', 'r', encoding='utf-8') as f:
             return json.load(f)
-    except:
-        return None
+    except: return None
 
 def check_if_changed(old_json, new_results, global_emerg):
     if not old_json: return True 
@@ -315,7 +302,7 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
 
 def main():
     now = datetime.now(TW_TZ)
-    print(f"V19.0 Final: {now}")
+    print(f"V20.0 Fixed: {now}")
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
@@ -334,26 +321,18 @@ def main():
             if d['emerg']: global_emerg = True
             
     old_json = load_previous_data()
-    
-    # V19 邏輯：有變更 OR 緊急 OR 中午12點 -> 發送通知
     is_noon = (now.hour == 12)
     status_changed = check_if_changed(old_json, results, global_emerg)
     
     save_widget_data(results, next_fri, max_rate, global_emerg)
     
     if status_changed or global_emerg or is_noon:
-        # 決定標題
-        if global_emerg:
-            header = "🚨 <b>緊急警報</b> 🚨\n"
-        elif is_noon:
-            header = f"☀️ <b>午間定時報告 ({today.strftime('%m/%d')})</b>\n有效至：{next_fri}\n\n"
-        else:
-            header = f"📊 <b>資產狀態變更 ({today.strftime('%H:%M')})</b>\n有效至：{next_fri}\n\n"
+        if global_emerg: header = "🚨 <b>緊急警報</b> 🚨\n"
+        elif is_noon: header = f"☀️ <b>午間定時報告 ({today.strftime('%m/%d')})</b>\n有效至：{next_fri}\n\n"
+        else: header = f"📊 <b>資產狀態變更 ({today.strftime('%H:%M')})</b>\n有效至：{next_fri}\n\n"
             
         msgs = [generate_telegram_report(d, max_rate) for d in results]
         send_telegram(header + "".join(msgs))
-    else:
-        print("No change & not noon -> Silent Update")
 
 if __name__ == "__main__":
     main()
