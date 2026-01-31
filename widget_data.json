@@ -1,8 +1,8 @@
 {
-  "updated_at": "01/31 21:53",
+  "updated_at": "01/31 22:53",
   "valid_until": "02/06",
-  "max_rate": 31.685,
-  "global_emerg": false,
+  "max_rate": 31.829,
+  "global_emerg": true,
   "data": [
     {
       "name": "台積電",
@@ -32,29 +32,29 @@
     },
     {
       "name": "Solana",
-      "price": "113.80",
+      "price": "108.72",
       "score": 20,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
-      "signal_label": "超跌",
-      "signal_price": "74.42",
-      "signal_note": "(-34.6%)",
-      "signal_color": "red",
+      "signal_label": "警示",
+      "signal_price": "暫停",
+      "signal_note": "RSI超賣",
+      "signal_color": "alert",
       "is_crypto": true,
-      "emerg": null
+      "emerg": "🩸RSI超賣"
     },
     {
       "name": "Render",
-      "price": "1.59",
+      "price": "1.54",
       "score": 20,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
-      "signal_label": "超跌",
-      "signal_price": "0.65",
-      "signal_note": "(-59.1%)",
-      "signal_color": "red",
+      "signal_label": "警示",
+      "signal_price": "暫停",
+      "signal_note": "📉閃崩-8.4%",
+      "signal_color": "alert",
       "is_crypto": true,
-      "emerg": null
+      "emerg": "📉閃崩-8.4%"
     }
   ]
 }
