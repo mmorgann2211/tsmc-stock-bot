@@ -1,13 +1,13 @@
 {
-  "updated_at": "02/05 13:08",
+  "updated_at": "02/05 16:01",
   "valid_until": "02/06",
-  "max_rate": 31.704,
+  "max_rate": 31.733,
   "global_emerg": true,
   "data": [
     {
       "name": "台積電",
-      "price": "1775",
-      "score": 55,
+      "price": "1765",
+      "score": 54,
       "sent_icon": "⚪",
       "sent_text": "觀望",
       "signal_label": "超跌",
@@ -19,10 +19,10 @@
     },
     {
       "name": "保德信市值",
-      "price": "15",
-      "score": 61,
-      "sent_icon": "🟢",
-      "sent_text": "貪婪",
+      "price": "14",
+      "score": 56,
+      "sent_icon": "⚪",
+      "sent_text": "觀望",
       "signal_label": "便宜",
       "signal_price": "11",
       "signal_note": "⚠️本週難達",
@@ -32,7 +32,7 @@
     },
     {
       "name": "Solana",
-      "price": "91.05",
+      "price": "90.57",
       "score": 12,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
@@ -45,16 +45,16 @@
     },
     {
       "name": "Render",
-      "price": "1.47",
+      "price": "1.46",
       "score": 12,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
-      "signal_label": "超跌",
-      "signal_price": "0.65",
-      "signal_note": "(-55.7%)",
-      "signal_color": "red",
+      "signal_label": "警示",
+      "signal_price": "暫停",
+      "signal_note": "RSI超賣",
+      "signal_color": "alert",
       "is_crypto": true,
-      "emerg": null
+      "emerg": "🩸RSI超賣"
     }
   ]
 }
