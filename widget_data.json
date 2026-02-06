@@ -1,13 +1,13 @@
 {
-  "updated_at": "02/06 07:52",
+  "updated_at": "02/06 13:06",
   "valid_until": "02/06",
-  "max_rate": 31.92,
+  "max_rate": 31.845,
   "global_emerg": true,
   "data": [
     {
       "name": "台積電",
-      "price": "1765",
-      "score": 54,
+      "price": "1775",
+      "score": 52,
       "sent_icon": "⚪",
       "sent_text": "觀望",
       "signal_label": "超跌",
@@ -20,7 +20,7 @@
     {
       "name": "保德信市值",
       "price": "14",
-      "score": 56,
+      "score": 54,
       "sent_icon": "⚪",
       "sent_text": "觀望",
       "signal_label": "便宜",
@@ -32,29 +32,29 @@
     },
     {
       "name": "Solana",
-      "price": "78.67",
-      "score": 12,
-      "sent_icon": "🔴",
-      "sent_text": "極度恐慌",
+      "price": "77.93",
+      "score": 9,
+      "sent_icon": "💀",
+      "sent_text": "血流成河",
       "signal_label": "警示",
       "signal_price": "暫停",
-      "signal_note": "📉閃崩-14.5%",
+      "signal_note": "📉閃崩-15.3%",
       "signal_color": "alert",
       "is_crypto": true,
-      "emerg": "📉閃崩-14.5%"
+      "emerg": "📉閃崩-15.3%"
     },
     {
       "name": "Render",
       "price": "1.26",
-      "score": 12,
-      "sent_icon": "🔴",
-      "sent_text": "極度恐慌",
+      "score": 9,
+      "sent_icon": "💀",
+      "sent_text": "血流成河",
       "signal_label": "警示",
       "signal_price": "暫停",
-      "signal_note": "📉閃崩-16.4%",
+      "signal_note": "📉閃崩-16.2%",
       "signal_color": "alert",
       "is_crypto": true,
-      "emerg": "📉閃崩-16.4%"
+      "emerg": "📉閃崩-16.2%"
     }
   ]
 }
