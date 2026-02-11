@@ -1,5 +1,5 @@
 {
-  "updated_at": "02/12 03:38",
+  "updated_at": "02/12 04:30",
   "valid_until": "02/13",
   "max_rate": 31.517,
   "global_emerg": true,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Solana",
-      "price": "79.46",
+      "price": "79.22",
       "score": 11,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
@@ -49,12 +49,12 @@
       "score": 11,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
-      "signal_label": "超跌",
-      "signal_price": "0.72",
-      "signal_note": "(-43.2%)",
-      "signal_color": "red",
+      "signal_label": "警示",
+      "signal_price": "暫停",
+      "signal_note": "RSI超賣",
+      "signal_color": "alert",
       "is_crypto": true,
-      "emerg": null
+      "emerg": "🩸RSI超賣"
     }
   ]
 }
