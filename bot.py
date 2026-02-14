@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
+# 標的清單
 TARGETS = {
     "🇹🇼 台積電": "2330.TW",
     "🇹🇼 保德信市值": "009803.TW",
@@ -43,16 +44,6 @@ def get_max_usdt_rate():
         try: return float(yf.Ticker("USDTWD=X").history(period="1d")['Close'].iloc[-1])
         except: return 32.5
 
-def adjust_tw_price(price):
-    if pd.isna(price) or price <= 0: return 0
-    if price < 10: tick = 0.01
-    elif price < 50: tick = 0.05
-    elif price < 100: tick = 0.1
-    elif price < 500: tick = 0.5
-    elif price < 1000: tick = 1.0
-    else: tick = 5.0
-    return math.ceil(price / tick) * tick
-
 def get_sentiment_analysis(score):
     if score <= 10: return "💀 崩盤", "血流成河"
     elif score <= 25: return "🔴 熊市", "極度恐慌"
@@ -62,160 +53,175 @@ def get_sentiment_analysis(score):
     elif score <= 89: return "🚀 過熱", "極度貪婪"
     else: return "🔥 泡沫", "快逃"
 
-def get_psychological_note(label, is_bear):
-    if label == "超跌": return "市場恐慌，確認資金可閒置2年以上，分批接刀。"
-    elif label == "便宜": return "價格進入舒適區，不求最低，耐心累積籌碼。"
-    elif label == "合理": return "趨勢回檔，建立基本部位，保持平常心。"
-    return "觀望為主。"
-
-def calculate_drop_info(current, target, is_crypto):
-    if current <= 0: return ""
-    drop_pct = (target - current) / current * 100
-    note = f"({drop_pct:.1f}%)"
-    if not is_crypto:
-        today = datetime.now(TW_TZ)
-        days_left = max(0, 4 - today.weekday())
-        theoretical_min = current * (0.9 ** (days_left + 1))
-        if target < theoretical_min: note = "⚠️本週難達"
-    return note
-
-# --- 核心運算 ---
-def calculate_metrics(df_daily, is_crypto=False):
-    df_daily = df_daily.dropna()
-    if len(df_daily) < 20: return None
-
-    current = df_daily['Close'].iloc[-1]
-    prev = df_daily['Close'].iloc[-2]
-    daily_chg = (current - prev) / prev * 100
+# --- V32 核心演算法 ---
+def calculate_indicators(df):
+    # 計算日線均線
+    ma_list = [7, 25, 50, 60, 99]
+    for w in ma_list:
+        df[f'MA{w}'] = df['Close'].rolling(w).mean()
     
-    delta = df_daily['Close'].diff()
+    # 計算 3日線均線 (近似值)
+    # 3D_MA7 ≈ 日線 MA21
+    # 3D_MA12 ≈ 日線 MA36
+    df['3D_MA7'] = df['Close'].rolling(21).mean()
+    df['3D_MA12'] = df['Close'].rolling(36).mean()
+    
+    # 計算均線糾結 (Squeeze)
+    def check_squeeze(row):
+        values = []
+        for w in ma_list:
+            v = row.get(f'MA{w}')
+            if pd.notna(v): values.append(v)
+        
+        if not values: return 0, False
+        
+        max_ma = max(values)
+        min_ma = min(values)
+        squeeze_rate = (max_ma - min_ma) / min_ma
+        return squeeze_rate, squeeze_rate < 0.05 # 5%內視為糾結
+
+    # 應用到最後一筆資料
+    last_idx = df.index[-1]
+    sq_rate, is_sq = check_squeeze(df.loc[last_idx])
+    
+    # RSI 計算 (輔助判斷)
+    delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs)).iloc[-1]
-
-    df_wk = df_daily.resample('W-FRI').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
-    if len(df_wk) < 2: ref_idx = -1; use_wk = False
-    else: ref_idx = -2; use_wk = True
-
-    close_s = df_wk['Close'] if use_wk else df_daily['Close']
-    w_ma20 = close_s.rolling(20).mean().iloc[ref_idx]
-    w_ma60 = close_s.rolling(60).mean().iloc[ref_idx]
-    if pd.isna(w_ma60) or w_ma60==0: w_ma60 = w_ma20 * 0.9
-
-    std20 = close_s.rolling(20).std().iloc[ref_idx]
-    w_low_bb = w_ma20 - (std20 * 2.0)
     
-    hl = (df_wk['High'] - df_wk['Low']) if use_wk else (df_daily['High'] - df_daily['Low']) * 5
-    w_atr = hl.rolling(14).mean().iloc[ref_idx]
+    return df, rsi, is_sq, sq_rate
 
-    # [V20 FIX] RSI 滯後閥值：跌破 20 警報，漲回 25 才解除
-    # 這裡我們無法知道上一狀態，所以採用保守策略：
-    # 如果 RSI < 22 就視為危險區（折衷方案），避免 20 邊緣跳動
-    emerg = None
-    if daily_chg < -5 and not is_crypto: emerg = f"📉閃崩{daily_chg:.1f}%"
-    elif daily_chg < -8 and is_crypto: emerg = f"📉閃崩{daily_chg:.1f}%"
-    elif daily_chg > 8: emerg = f"🚀噴出{daily_chg:.1f}%"
-    elif rsi < 22: emerg = "🩸RSI超賣" # 放寬到 22，減少頻繁切換
-    
-    is_bear = current < w_ma60
-    return current, w_ma20, w_ma60, w_low_bb, w_atr, rsi, is_bear, emerg
+def get_dynamic_ma(row, primary_window, fallback_windows):
+    val = row.get(f'MA{primary_window}')
+    if pd.notna(val): return val
+    for w in fallback_windows:
+        val = row.get(f'MA{w}')
+        if pd.notna(val): return val
+    return None
 
 def analyze_target(name, ticker, max_rate, crypto_fng):
     try:
+        # 下載數據 (2年以確保 MA99 有值)
         df = yf.Ticker(ticker).history(period="2y")
         if df.empty: return None
+        
         is_crypto = "USD" in ticker
-        data = calculate_metrics(df, is_crypto)
-        if not data: return None
+        df, rsi, is_squeeze, squeeze_rate = calculate_indicators(df)
         
-        curr, ma20, ma60, low_bb, atr, rsi, bear, emerg = data
+        current_price = df['Close'].iloc[-1]
+        row = df.iloc[-1]
         
+        # 取得情緒分數
         if is_crypto and crypto_fng: score = crypto_fng
         else: score = int(rsi)
-        sent_lv, sent_short_desc = get_sentiment_analysis(score)
-
-        if bear:
-            raw = [
-                {"p": curr-(atr*0.5), "l": "合理"},
-                {"p": min(low_bb, ma60-atr), "l": "便宜"},
-                {"p": low_bb*(0.9 if is_crypto else 0.95), "l": "超跌"}
-            ]
+        sent_lv, sent_short = get_sentiment_analysis(score)
+        
+        # --- 策略判定 (V32) ---
+        today = datetime.now(TW_TZ)
+        is_early_month = today.day <= 10
+        
+        strategy_note = ""
+        target_price = 0
+        label = "觀望"
+        emerg_msg = None
+        
+        # 1. 優先檢查變盤訊號
+        if is_squeeze:
+            label = "變盤"
+            target_price = row['MA25'] # 糾結時掛 MA25 吸籌
+            strategy_note = f"均線糾結{(squeeze_rate*100):.1f}%"
+            # 變盤訊號視為緊急通知
+            emerg_msg = f"⚠️ 變盤訊號 (收斂{(squeeze_rate*100):.1f}%)"
+        
         else:
-            raw = [
-                {"p": ma20, "l": "合理"},
-                {"p": ma60, "l": "便宜"},
-                {"p": low_bb, "l": "超跌"}
-            ]
-
-        valid = []
-        for s in raw:
-            p = s["p"]
-            if pd.isna(p) or p<=0: continue
-            if not is_crypto: p = adjust_tw_price(p)
-            if p >= curr:
-                p = curr * 0.99
-                if not is_crypto: p = adjust_tw_price(p)
+            # 2. 趨勢判斷
+            trend_ma = get_dynamic_ma(row, 99, [60, 50, 25])
             
-            note = calculate_drop_info(curr, p, is_crypto)
-            valid.append({"price": p, "label": s["l"], "note": note})
+            if trend_ma and current_price > trend_ma:
+                # 🐂 牛市策略
+                if is_early_month:
+                    target_price = row['MA25']
+                    label = "牛市(月)"
+                else:
+                    # 月中掛 MA50，若無則掛 MA25*0.95
+                    ma50 = row.get('MA50')
+                    if pd.notna(ma50):
+                        target_price = ma50
+                        label = "牛市(中)"
+                    else:
+                        target_price = row['MA25'] * 0.95
+                        label = "牛市(中)"
+            else:
+                # 🐻 熊市策略 (3D均線)
+                if is_early_month:
+                    target_price = row['3D_MA7']
+                    label = "熊市(月)"
+                else:
+                    target_price = row['3D_MA12']
+                    label = "熊市(中)"
 
-        valid.sort(key=lambda x: x["price"], reverse=True)
-        final = []
-        seen = set()
-        for v in valid:
-            if v["price"] not in seen:
-                final.append(v)
-                seen.add(v["price"])
+        # 價格防呆 (若資料不足)
+        if pd.isna(target_price) or target_price == 0:
+            target_price = current_price * 0.9
+            strategy_note = "資料不足保底"
+
+        # 計算跌幅需求
+        drop_pct = (target_price - current_price) / current_price * 100
         
-        if not final: return None
+        # 跌幅過小(或已經跌破)的處理
+        note_color = "green"
+        if drop_pct >= 0:
+            note_str = "已達標"
+            note_color = "red" # 價格低於掛單價，強力買進
+        else:
+            note_str = f"({drop_pct:.1f}%)"
+            # 如果跌幅需求 > 20%，標記難達
+            if drop_pct < -20: note_color = "gray" 
         
-        if bear or rsi>70: best_idx = len(final)-1
-        else: best_idx = min(1, len(final)-1)
-        best = final[best_idx]
+        if strategy_note == "":
+            strategy_note = f"目標: {label}"
 
         return {
-            "name": name, "ticker": ticker, "is_crypto": is_crypto,
-            "current": curr, "rsi": rsi, "score": score, 
-            "sent_lv": sent_lv, "sent_short_desc": sent_short_desc,
-            "emerg": emerg, "best": best, "strategies": final, "is_bear": bear
+            "name": name, 
+            "ticker": ticker, 
+            "is_crypto": is_crypto,
+            "current": current_price, 
+            "score": score, 
+            "sent_lv": sent_lv, 
+            "sent_short": sent_short,
+            "emerg": emerg_msg,
+            "best": {
+                "price": target_price,
+                "label": label,
+                "note": note_str,
+                "strategy": strategy_note,
+                "color": note_color
+            }
         }
-    except: return None
+    except Exception as e:
+        print(f"Error {name}: {e}")
+        return None
 
 def generate_telegram_report(data, max_rate):
-    colors = {"合理":"🟢", "便宜":"🟡", "超跌":"🔴"}
-    
     if data['is_crypto']:
         p_txt = f"{data['current']:.2f} U"
-        if max_rate: p_txt += f" (≈{data['current']*max_rate:.0f} NT)"
-        r_str = f"{data['best']['price']:.2f} U"
-        if ("SOL" in data['ticker'] or "RENDER" in data['ticker']) and max_rate:
-             r_str += f" (≈{data['best']['price']*max_rate:.0f} NT)"
+        if max_rate: p_txt += f" (≈{data['current']*max_rate:.0f})"
+        t_price = f"{data['best']['price']:.2f} U"
     else:
         p_txt = f"{data['current']:.0f}"
-        r_str = f"{data['best']['price']:.0f}"
+        t_price = f"{data['best']['price']:.0f}"
 
     msg = f"<b>{data['name']}</b>\n"
     msg += f"現價：<code>{p_txt}</code>\n"
     msg += f"情緒：{data['sent_lv']} ({data['score']})\n"
     
     if data['emerg']:
-        msg += f"🚨 <b>{data['emerg']}</b>\n⚠️ 建議暫停掛單，觀察市場反應！\n"
-    else:
-        mindset = get_psychological_note(data['best']['label'], data['is_bear'])
-        msg += f"🏆 首選：{colors[data['best']['label']]} <b><code>{r_str}</code></b> {data['best']['note']}\n"
-        msg += f"🧠 心法：<i>{mindset}</i>\n"
+        msg += f"🚨 <b>{data['emerg']}</b>\n"
     
-    for s in data['strategies']:
-        lbl = s['label']
-        if data['is_crypto']: 
-            p = f"{s['price']:.2f} U"
-            if ("SOL" in data['ticker'] or "RENDER" in data['ticker']) and max_rate:
-                p += f" (≈{s['price']*max_rate:.0f})"
-        else: 
-            p = f"{s['price']:.0f}"
-        msg += f"• {colors[lbl]} {lbl}：<code>{p}</code> {s['note']}\n"
-    
+    msg += f"🎯 策略：<b>{data['best']['strategy']}</b>\n"
+    msg += f"🛒 掛單：<code>{t_price}</code> {data['best']['note']}\n"
     msg += "--------------------\n"
     return msg
 
@@ -226,36 +232,29 @@ def load_previous_data():
     except: return None
 
 def check_if_changed(old_json, new_results, global_emerg):
-    if not old_json: return True 
+    if not old_json: return True
     if global_emerg: return True
-
-    old_map = {}
-    for item in old_json.get('data', []):
-        old_map[item['name']] = {
-            'label': item['signal_label'],
-            'price': item['signal_price']
-        }
-
-    for item in new_results:
-        name_key = item['name'].replace("🇹🇼 ", "").replace("🪙 ", "")
-        if name_key not in old_map: return True
-        old_item = old_map[name_key]
-        if item['is_crypto']: new_price_str = f"{item['best']['price']:.2f}"
-        else: new_price_str = f"{item['best']['price']:.0f}"
-        
-        if item['emerg']: return True
-        if item['best']['label'] != old_item['label']: return True
-        if new_price_str != old_item['price']: return True
-        
-    return False
+    
+    # 這裡簡化判斷：只要有資料就更新，因為 V32 策略每天價格都會微調
+    # 為了避免頻繁跳通知，我們只在「策略標籤改變」或「緊急狀態」時通知
+    # 但中午 12 點會強制通知 (在 main 控制)
+    return False 
 
 def save_widget_data(results, valid_until, max_rate, global_emerg):
     widget_data = []
     for item in results:
         if not item: continue
         
+        # 決定顏色
         lbl = item['best']['label']
-        color = "green" if lbl=="合理" else "yellow" if lbl=="便宜" else "red"
+        if "變盤" in lbl: color = "alert"
+        elif "牛" in lbl: color = "red"  # 牛市掛單通常是紅字(追價/回檔)
+        elif "熊" in lbl: color = "green" # 熊市掛單通常是綠字(低接)
+        else: color = "yellow"
+
+        # 若已達標(現價低於掛單價)，顯示紅色強力買進
+        if "已達標" in item['best']['note']:
+            color = "red"
         
         if item['is_crypto']:
             p_str = f"{item['current']:.2f}"
@@ -264,14 +263,9 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
             p_str = f"{item['current']:.0f}"
             sig_p = f"{item['best']['price']:.0f}"
             
-        note = item['best']['note']
-
-        if item['emerg']:
-            lbl = "警示"
-            color = "alert"
-            sig_p = "暫停"
-            clean_emerg = item['emerg'].replace("<b>", "").replace("</b>", "").replace("🚨", "").replace("🩸", "").strip()
-            note = clean_emerg
+        # 處理備註
+        final_note = item['best']['note']
+        if item['emerg']: final_note = "變盤訊號"
 
         icon = item['sent_lv'].split(" ")[0]
         
@@ -280,10 +274,10 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
             "price": p_str,
             "score": item['score'],
             "sent_icon": icon,
-            "sent_text": item['sent_short_desc'],
+            "sent_text": item['sent_short'],
             "signal_label": lbl,
             "signal_price": sig_p,
-            "signal_note": note,
+            "signal_note": final_note,
             "signal_color": color,
             "is_crypto": item['is_crypto'],
             "emerg": item['emerg']
@@ -302,14 +296,15 @@ def save_widget_data(results, valid_until, max_rate, global_emerg):
 
 def main():
     now = datetime.now(TW_TZ)
-    print(f"V20.0 Fixed: {now}")
+    print(f"V32.0 Production: {now}")
+    
     max_rate = get_max_usdt_rate()
     c_val = get_crypto_fng()
     
-    today = datetime.now(TW_TZ)
-    days = 4 - today.weekday()
+    # 計算有效期 (週五)
+    days = 4 - now.weekday()
     if days < 0: days += 7
-    next_fri = (today + timedelta(days=days)).strftime('%m/%d')
+    next_fri = (now + timedelta(days=days)).strftime('%m/%d')
     
     results = []
     global_emerg = False
@@ -320,19 +315,24 @@ def main():
             results.append(d)
             if d['emerg']: global_emerg = True
             
-    old_json = load_previous_data()
-    is_noon = (now.hour == 12)
-    status_changed = check_if_changed(old_json, results, global_emerg)
-    
+    # 存檔
     save_widget_data(results, next_fri, max_rate, global_emerg)
     
-    if status_changed or global_emerg or is_noon:
-        if global_emerg: header = "🚨 <b>緊急警報</b> 🚨\n"
-        elif is_noon: header = f"☀️ <b>午間定時報告 ({today.strftime('%m/%d')})</b>\n有效至：{next_fri}\n\n"
-        else: header = f"📊 <b>資產狀態變更 ({today.strftime('%H:%M')})</b>\n有效至：{next_fri}\n\n"
+    # 通知邏輯
+    # 1. 緊急訊號 (均線糾結) -> 通知
+    # 2. 中午 12 點 (強制日報) -> 通知
+    is_noon = (now.hour == 12)
+    
+    if global_emerg or is_noon:
+        if global_emerg:
+            header = "🚨 <b>【變盤警報】均線極度收斂</b> 🚨\n"
+        else:
+            header = f"☀️ <b>午間定時報告 ({now.strftime('%m/%d')})</b>\n有效至：{next_fri}\n\n"
             
         msgs = [generate_telegram_report(d, max_rate) for d in results]
         send_telegram(header + "".join(msgs))
+    else:
+        print("Silent Update (Not noon & No emergency)")
 
 if __name__ == "__main__":
     main()
