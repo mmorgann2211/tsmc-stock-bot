@@ -1,8 +1,8 @@
 {
-  "updated_at": "02/15 04:16",
+  "updated_at": "02/15 05:02",
   "valid_until": "02/20",
   "max_rate": 31.808,
-  "global_emerg": true,
+  "global_emerg": false,
   "data": [
     {
       "name": "台積電",
@@ -10,10 +10,10 @@
       "score": 71,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
-      "signal_label": "便宜",
-      "signal_price": "1210",
-      "signal_note": "⚠️本週難達",
-      "signal_color": "yellow",
+      "signal_label": "牛市(中)",
+      "signal_price": "1634",
+      "signal_note": "(-14.7%)",
+      "signal_color": "red",
       "is_crypto": false,
       "emerg": null
     },
@@ -23,22 +23,22 @@
       "score": 69,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
-      "signal_label": "便宜",
-      "signal_price": "12",
-      "signal_note": "⚠️本週難達",
-      "signal_color": "yellow",
+      "signal_label": "牛市(中)",
+      "signal_price": "14",
+      "signal_note": "(-12.5%)",
+      "signal_color": "red",
       "is_crypto": false,
       "emerg": null
     },
     {
       "name": "Solana",
-      "price": "87.95",
+      "price": "88.08",
       "score": 9,
       "sent_icon": "💀",
       "sent_text": "血流成河",
-      "signal_label": "超跌",
-      "signal_price": "64.55",
-      "signal_note": "(-26.6%)",
+      "signal_label": "熊市(中)",
+      "signal_price": "114.36",
+      "signal_note": "已達標",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
@@ -49,12 +49,12 @@
       "score": 9,
       "sent_icon": "💀",
       "sent_text": "血流成河",
-      "signal_label": "警示",
-      "signal_price": "暫停",
-      "signal_note": "🚀噴出11.2%",
-      "signal_color": "alert",
+      "signal_label": "熊市(中)",
+      "signal_price": "1.80",
+      "signal_note": "已達標",
+      "signal_color": "red",
       "is_crypto": true,
-      "emerg": "🚀噴出11.2%"
+      "emerg": null
     }
   ]
 }
