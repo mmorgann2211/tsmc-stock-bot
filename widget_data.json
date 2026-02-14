@@ -1,5 +1,5 @@
 {
-  "updated_at": "02/15 05:14",
+  "updated_at": "02/15 05:15",
   "valid_until": "02/20",
   "max_rate": 31.808,
   "global_emerg": false,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Solana",
-      "price": "88.21",
+      "price": "88.19",
       "score": 9,
       "sent_icon": "💀",
       "sent_text": "血流成河",
