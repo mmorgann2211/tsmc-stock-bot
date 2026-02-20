@@ -1,5 +1,5 @@
 {
-  "updated_at": "02/21 00:02",
+  "updated_at": "02/21 01:04",
   "valid_until": "02/27",
   "max_rate": 31.768,
   "global_emerg": false,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Solana",
-      "price": "84.39",
+      "price": "84.44",
       "score": 7,
       "sent_icon": "💀",
       "sent_text": "血流成河",
@@ -45,7 +45,7 @@
     },
     {
       "name": "Render",
-      "price": "1.50",
+      "price": "1.51",
       "score": 7,
       "sent_icon": "💀",
       "sent_text": "血流成河",
