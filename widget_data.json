@@ -1,5 +1,5 @@
 {
-  "updated_at": "02/22 15:09",
+  "updated_at": "02/22 15:52",
   "valid_until": "02/27",
   "max_rate": 31.677,
   "global_emerg": false,
@@ -32,12 +32,12 @@
     },
     {
       "name": "Solana",
-      "price": "85.18",
+      "price": "85.48",
       "score": 9,
       "sent_icon": "💀",
       "sent_text": "血流成河",
       "signal_label": "熊市(中)",
-      "signal_price": "99.71",
+      "signal_price": "99.74",
       "signal_note": "已達標",
       "signal_color": "red",
       "is_crypto": true,
