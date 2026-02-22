@@ -1,5 +1,5 @@
 {
-  "updated_at": "02/23 04:47",
+  "updated_at": "02/23 05:15",
   "valid_until": "02/27",
   "max_rate": 31.66,
   "global_emerg": false,
@@ -45,7 +45,7 @@
     },
     {
       "name": "Render",
-      "price": "1.40",
+      "price": "1.39",
       "score": 9,
       "sent_icon": "💀",
       "sent_text": "血流成河",
