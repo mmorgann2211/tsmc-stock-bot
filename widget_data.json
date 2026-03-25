@@ -1,7 +1,7 @@
 {
-  "updated_at": "03/26 07:25",
+  "updated_at": "03/26 07:55",
   "valid_until": "03/27",
-  "max_rate": 31.978,
+  "max_rate": 31.982,
   "global_emerg": false,
   "data": [
     {
@@ -51,7 +51,7 @@
       "sent_text": "極度恐慌",
       "signal_label": "牛市(中)",
       "signal_price": "1.50",
-      "signal_note": "(-18.9%)",
+      "signal_note": "(-19.0%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
