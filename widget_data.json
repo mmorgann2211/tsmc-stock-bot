@@ -1,7 +1,7 @@
 {
-  "updated_at": "03/30 20:55",
+  "updated_at": "03/30 22:22",
   "valid_until": "04/03",
-  "max_rate": 32.084,
+  "max_rate": 32.076,
   "global_emerg": false,
   "data": [
     {
@@ -45,13 +45,13 @@
     },
     {
       "name": "Render",
-      "price": "1.74",
+      "price": "1.72",
       "score": 8,
       "sent_icon": "💀",
       "sent_text": "血流成河",
       "signal_label": "牛市(中)",
       "signal_price": "1.53",
-      "signal_note": "(-12.1%)",
+      "signal_note": "(-10.8%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
