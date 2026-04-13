@@ -1,7 +1,7 @@
 {
-  "updated_at": "04/14 00:54",
+  "updated_at": "04/14 01:52",
   "valid_until": "04/17",
-  "max_rate": 31.85,
+  "max_rate": 31.832,
   "global_emerg": false,
   "data": [
     {
@@ -32,12 +32,12 @@
     },
     {
       "name": "Solana",
-      "price": "83.48",
+      "price": "83.46",
       "score": 12,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
       "signal_label": "熊市(中)",
-      "signal_price": "85.40",
+      "signal_price": "85.39",
       "signal_note": "已達標",
       "signal_color": "red",
       "is_crypto": true,
@@ -45,13 +45,13 @@
     },
     {
       "name": "Render",
-      "price": "1.87",
+      "price": "1.88",
       "score": 12,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
       "signal_label": "牛市(中)",
       "signal_price": "1.67",
-      "signal_note": "(-10.6%)",
+      "signal_note": "(-10.9%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
