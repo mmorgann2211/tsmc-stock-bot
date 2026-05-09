@@ -1,7 +1,7 @@
 {
-  "updated_at": "05/10 01:41",
+  "updated_at": "05/10 02:44",
   "valid_until": "05/15",
-  "max_rate": 31.475,
+  "max_rate": 31.471,
   "global_emerg": true,
   "data": [
     {
@@ -45,13 +45,13 @@
     },
     {
       "name": "Render",
-      "price": "2.01",
+      "price": "2.00",
       "score": 38,
       "sent_icon": "🟠",
       "sent_text": "恐慌",
       "signal_label": "牛市(月)",
       "signal_price": "1.83",
-      "signal_note": "(-9.1%)",
+      "signal_note": "(-8.8%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
