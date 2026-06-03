@@ -1,7 +1,7 @@
 {
-  "updated_at": "06/03 13:23",
+  "updated_at": "06/03 18:15",
   "valid_until": "06/05",
-  "max_rate": 31.51,
+  "max_rate": 31.507,
   "global_emerg": false,
   "data": [
     {
@@ -20,24 +20,24 @@
     {
       "name": "保德信市值",
       "price": "23",
-      "score": 70,
+      "score": 71,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
       "signal_label": "牛市(月)",
       "signal_price": "21",
-      "signal_note": "(-8.9%)",
+      "signal_note": "(-9.1%)",
       "signal_color": "red",
       "is_crypto": false,
       "emerg": null
     },
     {
       "name": "Solana",
-      "price": "74.54",
+      "price": "75.27",
       "score": 11,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
       "signal_label": "熊市(月)",
-      "signal_price": "85.09",
+      "signal_price": "82.68",
       "signal_note": "已達標",
       "signal_color": "red",
       "is_crypto": true,
@@ -45,13 +45,13 @@
     },
     {
       "name": "Render",
-      "price": "2.21",
+      "price": "2.20",
       "score": 11,
       "sent_icon": "🔴",
       "sent_text": "極度恐慌",
       "signal_label": "牛市(月)",
       "signal_price": "1.98",
-      "signal_note": "(-10.3%)",
+      "signal_note": "(-9.9%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
