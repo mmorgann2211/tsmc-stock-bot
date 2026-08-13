@@ -1,5 +1,5 @@
 {
-  "updated_at": "08/13 18:53",
+  "updated_at": "08/13 19:40",
   "valid_until": "08/14",
   "max_rate": 32.217,
   "global_emerg": true,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Solana",
-      "price": "75.69",
+      "price": "75.61",
       "score": 29,
       "sent_icon": "🟠",
       "sent_text": "恐慌",
@@ -45,7 +45,7 @@
     },
     {
       "name": "Render",
-      "price": "1.27",
+      "price": "1.26",
       "score": 29,
       "sent_icon": "🟠",
       "sent_text": "恐慌",
