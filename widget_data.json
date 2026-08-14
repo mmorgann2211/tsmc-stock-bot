@@ -1,7 +1,7 @@
 {
-  "updated_at": "08/14 19:29",
+  "updated_at": "08/14 20:29",
   "valid_until": "08/14",
-  "max_rate": 32.104,
+  "max_rate": 32.101,
   "global_emerg": true,
   "data": [
     {
@@ -45,7 +45,7 @@
     },
     {
       "name": "Render",
-      "price": "1.24",
+      "price": "1.25",
       "score": 29,
       "sent_icon": "🟠",
       "sent_text": "恐慌",
