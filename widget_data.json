@@ -1,7 +1,7 @@
 {
-  "updated_at": "08/18 19:03",
+  "updated_at": "08/18 20:02",
   "valid_until": "08/21",
-  "max_rate": 31.948,
+  "max_rate": 31.958,
   "global_emerg": true,
   "data": [
     {
@@ -32,12 +32,12 @@
     },
     {
       "name": "Solana",
-      "price": "75.89",
+      "price": "76.32",
       "score": 41,
       "sent_icon": "⚪",
       "sent_text": "觀望",
       "signal_label": "變盤",
-      "signal_price": "74.62",
+      "signal_price": "74.63",
       "signal_note": "變盤訊號",
       "signal_color": "alert",
       "is_crypto": true,
