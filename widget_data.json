@@ -1,13 +1,13 @@
 {
-  "updated_at": "09/01 13:44",
+  "updated_at": "09/01 18:29",
   "valid_until": "09/04",
-  "max_rate": 31.742,
+  "max_rate": 31.758,
   "global_emerg": true,
   "data": [
     {
       "name": "台積電",
-      "price": "2425",
-      "score": 51,
+      "price": "2440",
+      "score": 53,
       "sent_icon": "⚪",
       "sent_text": "觀望",
       "signal_label": "變盤",
@@ -15,7 +15,7 @@
       "signal_note": "變盤訊號",
       "signal_color": "alert",
       "is_crypto": false,
-      "emerg": "⚠️ 變盤訊號 (收斂3.7%)"
+      "emerg": "⚠️ 變盤訊號 (收斂3.8%)"
     },
     {
       "name": "保德信市值",
@@ -25,33 +25,33 @@
       "sent_text": "貪婪",
       "signal_label": "牛市(月)",
       "signal_price": "21",
-      "signal_note": "(-5.5%)",
+      "signal_note": "(-5.6%)",
       "signal_color": "red",
       "is_crypto": false,
       "emerg": null
     },
     {
       "name": "Solana",
-      "price": "104.18",
+      "price": "102.26",
       "score": 69,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
       "signal_label": "牛市(月)",
-      "signal_price": "87.45",
-      "signal_note": "(-16.1%)",
+      "signal_price": "88.54",
+      "signal_note": "(-13.4%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
     },
     {
       "name": "Render",
-      "price": "1.46",
+      "price": "1.44",
       "score": 69,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
       "signal_label": "熊市(月)",
-      "signal_price": "1.39",
-      "signal_note": "(-5.0%)",
+      "signal_price": "1.41",
+      "signal_note": "(-1.5%)",
       "signal_color": "green",
       "is_crypto": true,
       "emerg": null
