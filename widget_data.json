@@ -1,18 +1,18 @@
 {
-  "updated_at": "10/07 10:42",
+  "updated_at": "10/07 17:19",
   "valid_until": "10/09",
-  "max_rate": 31.919,
+  "max_rate": 31.885,
   "global_emerg": false,
   "data": [
     {
       "name": "台積電",
-      "price": "2575",
-      "score": 80,
+      "price": "2585",
+      "score": 82,
       "sent_icon": "🚀",
       "sent_text": "極度貪婪",
       "signal_label": "牛市(月)",
       "signal_price": "2458",
-      "signal_note": "(-4.5%)",
+      "signal_note": "(-4.9%)",
       "signal_color": "red",
       "is_crypto": false,
       "emerg": null
@@ -32,13 +32,13 @@
     },
     {
       "name": "Solana",
-      "price": "118.15",
+      "price": "118.04",
       "score": 71,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
       "signal_label": "牛市(月)",
-      "signal_price": "113.72",
-      "signal_note": "(-3.7%)",
+      "signal_price": "114.48",
+      "signal_note": "(-3.0%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
@@ -50,8 +50,8 @@
       "sent_icon": "🟢",
       "sent_text": "貪婪",
       "signal_label": "牛市(月)",
-      "signal_price": "1.77",
-      "signal_note": "(-14.4%)",
+      "signal_price": "1.80",
+      "signal_note": "(-12.9%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
