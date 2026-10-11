@@ -1,7 +1,7 @@
 {
-  "updated_at": "10/11 15:50",
+  "updated_at": "10/11 22:29",
   "valid_until": "10/16",
-  "max_rate": 32.101,
+  "max_rate": 32.075,
   "global_emerg": false,
   "data": [
     {
@@ -45,13 +45,13 @@
     },
     {
       "name": "Render",
-      "price": "1.90",
+      "price": "1.91",
       "score": 61,
       "sent_icon": "🟢",
       "sent_text": "貪婪",
       "signal_label": "牛市(中)",
       "signal_price": "1.66",
-      "signal_note": "(-12.7%)",
+      "signal_note": "(-13.0%)",
       "signal_color": "red",
       "is_crypto": true,
       "emerg": null
